@@ -1,0 +1,24 @@
+imconvert logo.png -background transparent -gravity center -resize 16x16 -density 16x16 -extent 16x16 favicon-16x16.ico
+imconvert logo.png -background transparent -gravity center -resize 32x32 -density 32x32 -extent 32x32 favicon-32x32.ico
+imconvert logo.png -background transparent -gravity center -resize 96x96 -density 96x96 -extent 96x96 favicon-96x96.ico
+imconvert logo.png -background transparent -gravity center -resize 128x128 -density 128x128 -extent 128x128 favicon-128x128.ico
+imconvert logo.png -background transparent -gravity center -resize 192x192 -density 192x192 -extent 192x192 favicon-192x192.ico
+imconvert logo.png -background transparent -gravity center -resize 196x196 -density 196x196 -extent 196x196 favicon-196x196.ico
+imconvert logo.png -background transparent -gravity center -resize 256x256 -density 256x256 -extent 256x256 favicon-256x256.ico
+imconvert logo.png -background transparent -gravity center -resize 512x512 -density 512x512 -extent 512x512 favicon-512x512.png
+
+imconvert logo.png -background #ffffff -gravity center -resize 57x57 -density 57x57 -extent 57x57 -alpha off favicon-apple-57x57.png
+imconvert logo.png -background #ffffff -gravity center -resize 60x60 -density 60x60 -extent 60x60 -alpha off favicon-apple-60x60.png
+imconvert logo.png -background #ffffff -gravity center -resize 72x72 -density 72x72 -extent 72x72 -alpha off favicon-apple-72x72.png
+imconvert logo.png -background #ffffff -gravity center -resize 76x76 -density 76x76 -extent 76x76 -alpha off favicon-apple-76x76.png
+imconvert logo.png -background #ffffff -gravity center -resize 114x114 -density 114x114 -extent 114x114 -alpha off favicon-apple-114x114.png
+imconvert logo.png -background #ffffff -gravity center -resize 120x120 -density 120x120 -extent 120x120 -alpha off favicon-apple-120x120.png
+imconvert logo.png -background #ffffff -gravity center -resize 144x144 -density 144x144 -extent 144x144 -alpha off favicon-apple-144x144.png
+imconvert logo.png -background #ffffff -gravity center -resize 152x152 -density 152x152 -extent 152x152 -alpha off favicon-apple-152x152.png
+imconvert logo.png -background #ffffff -gravity center -resize 167x167 -density 167x167 -extent 167x167 -alpha off favicon-apple-167x167.png
+imconvert logo.png -background #ffffff -gravity center -resize 180x180 -density 180x180 -extent 180x180 -alpha off favicon-apple-180x180.png
+
+imconvert logo.png -background transparent -gravity center -resize 70x70 -density 70x70 -extent 70x70 favicon-mstile-70x70.png
+imconvert logo.png -background transparent -gravity center -resize 144x144 -density 144x144 -extent 144x144 favicon-mstile-144x144.png
+imconvert logo.png -background transparent -gravity center -resize 150x150 -density 150x150 -extent 150x150 favicon-mstile-150x150.png
+imconvert logo.png -background transparent -gravity center -resize 310x310 -density 310x310 -extent 310x310 favicon-mstile-310x310.png

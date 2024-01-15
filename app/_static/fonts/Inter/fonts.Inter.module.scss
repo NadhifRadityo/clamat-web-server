@@ -1,0 +1,93 @@
+// Thin 100
+// Extra-Light 200
+// Light 300
+// Regular 400
+// Medium 500
+// Semi-Bold 600
+// Bold 700
+// Extra-Bold 800
+// Black 900
+
+// Styles: Regular
+
+@font-face {
+	font-family: "WatDaFawkCarl";
+	font-weight: 100;
+	src: url("Inter-Thin.eot") format("eot"), 
+		 url("Inter-Thin.otf") format("otf"), 
+		 url("Inter-Thin.ttf") format("ttf"), 
+		 url("Inter-Thin.woff") format("woff"), 
+		 url("Inter-Thin.woff2") format("woff2");
+}
+@font-face {
+	font-family: "WatDaFawkCarl";
+	font-weight: 200;
+	src: url("Inter-ExtraLight.eot") format("eot"), 
+		 url("Inter-ExtraLight.otf") format("otf"), 
+		 url("Inter-ExtraLight.ttf") format("ttf"), 
+		 url("Inter-ExtraLight.woff") format("woff"), 
+		 url("Inter-ExtraLight.woff2") format("woff2");
+}
+@font-face {
+	font-family: "WatDaFawkCarl";
+	font-weight: 300;
+	src: url("Inter-Light.eot") format("eot"), 
+		 url("Inter-Light.otf") format("otf"), 
+		 url("Inter-Light.ttf") format("ttf"), 
+		 url("Inter-Light.woff") format("woff"), 
+		 url("Inter-Light.woff2") format("woff2");
+}
+@font-face {
+	font-family: "WatDaFawkCarl";
+	font-weight: 400;
+	src: url("Inter-Regular.eot") format("eot"), 
+		 url("Inter-Regular.otf") format("otf"), 
+		 url("Inter-Regular.ttf") format("ttf"), 
+		 url("Inter-Regular.woff") format("woff"), 
+		 url("Inter-Regular.woff2") format("woff2");
+}
+@font-face {
+	font-family: "WatDaFawkCarl";
+	font-weight: 500;
+	src: url("Inter-Medium.eot") format("eot"), 
+		 url("Inter-Medium.otf") format("otf"), 
+		 url("Inter-Medium.ttf") format("ttf"), 
+		 url("Inter-Medium.woff") format("woff"), 
+		 url("Inter-Medium.woff2") format("woff2");
+}
+@font-face {
+	font-family: "WatDaFawkCarl";
+	font-weight: 600;
+	src: url("Inter-SemiBold.eot") format("eot"), 
+		 url("Inter-SemiBold.otf") format("otf"), 
+		 url("Inter-SemiBold.ttf") format("ttf"), 
+		 url("Inter-SemiBold.woff") format("woff"), 
+		 url("Inter-SemiBold.woff2") format("woff2");
+}
+@font-face {
+	font-family: "WatDaFawkCarl";
+	font-weight: 700;
+	src: url("Inter-Bold.eot") format("eot"), 
+		 url("Inter-Bold.otf") format("otf"), 
+		 url("Inter-Bold.ttf") format("ttf"), 
+		 url("Inter-Bold.woff") format("woff"), 
+		 url("Inter-Bold.woff2") format("woff2");
+}
+@font-face {
+	font-family: "WatDaFawkCarl";
+	font-weight: 800;
+	src: url("Inter-ExtraBold.eot") format("eot"), 
+		 url("Inter-ExtraBold.otf") format("otf"), 
+		 url("Inter-ExtraBold.ttf") format("ttf"), 
+		 url("Inter-ExtraBold.woff") format("woff"), 
+		 url("Inter-ExtraBold.woff2") format("woff2");
+}
+@font-face {
+	font-family: "WatDaFawkCarl";
+	font-weight: 900;
+	src: url("Inter-Black.eot") format("eot"), 
+		 url("Inter-Black.otf") format("otf"), 
+		 url("Inter-Black.ttf") format("ttf"), 
+		 url("Inter-Black.woff") format("woff"), 
+		 url("Inter-Black.woff2") format("woff2");
+}

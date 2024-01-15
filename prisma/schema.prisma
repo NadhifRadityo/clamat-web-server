@@ -1,0 +1,68 @@
+generator client {
+    provider = "prisma-client-js"
+}
+
+datasource db {
+    provider = "mongodb"
+    url      = env("DATABASE_URL")
+}
+
+model User {
+    id                     String         @id @default(auto()) @map("_id") @db.ObjectId
+    username               String         @unique
+    password               String
+    history                History?       @relation("userHistory")
+    historyCreation        History[]      @relation("userHistoryCreation")
+    historyEntriesCreation HistoryEntry[] @relation("userHistoryEntriesCreation")
+}
+
+model History {
+    id             String         @id @default(auto()) @map("_id") @db.ObjectId
+    timestamp      DateTime
+    createdById    String         @db.ObjectId
+    createdBy      User           @relation("userHistoryCreation", fields: [createdById], references: [id])
+    entries        HistoryEntry[] @relation("historyEntries")
+    ownerId        String         @unique @db.ObjectId
+    ownerUser      User?          @relation("userHistory", fields: [ownerId], references: [id])
+    ownerLinkGroup LinkGroup?     @relation("linkGroupHistory", fields: [ownerId], references: [id])
+    ownerLink      Link?          @relation("linkHistory", fields: [ownerId], references: [id])
+}
+
+model HistoryEntry {
+    id           String   @id @default(auto()) @map("_id") @db.ObjectId
+    timestamp    DateTime
+    parentId     String   @db.ObjectId
+    parent       History  @relation("historyEntries", fields: [parentId], references: [id])
+    modifiedById String   @db.ObjectId
+    modifiedBy   User     @relation("userHistoryEntriesCreation", fields: [modifiedById], references: [id])
+    changes      Json
+    message      String
+}
+
+model LinkClick {
+    id        String   @id @default(auto()) @map("_id") @db.ObjectId
+    timestamp DateTime
+    linkId    String   @db.ObjectId
+    link      Link     @relation("linkClicks", fields: [linkId], references: [id])
+    ip        String
+    referer   String
+    userAgent String
+}
+
+model LinkGroup {
+    id      String   @id @default(auto()) @map("_id") @db.ObjectId
+    name    String
+    rules   Json[]
+    links   Link[]
+    history History? @relation("linkGroupHistory")
+}
+
+model Link {
+    id      String      @id @default(auto()) @map("_id") @db.ObjectId
+    name    String
+    groupId String      @db.ObjectId
+    group   LinkGroup   @relation(fields: [groupId], references: [id])
+    link    String
+    history History?    @relation("linkHistory")
+    clicks  LinkClick[] @relation("linkClicks")
+}
