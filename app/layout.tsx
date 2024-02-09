@@ -33,28 +33,23 @@ const { publicRuntimeConfig } = getConfig();
 export const metadata = {
 	metadataBase: publicRuntimeConfig.PROJECT_WEB_ORIGIN,
 	generator: "Next.js",
-	applicationName: "Website Link Shortener SMA Negeri 3 Malang",
+	applicationName: "",
 	title: {
-		default: "Link Shortener • SMA Negeri 3 Malang",
-		template: "%s • Link Shortener • SMA Negeri 3 Malang"
+		default: "C-Lamat",
+		template: "%s • C-Lamat"
 	},
 	description: "",
-	creator: "SMA Negeri 3 Malang",
-	publisher: "SMA Negeri 3 Malang",
-	authors: [
-		{ name: "SMA Negeri 3 Malang", url: "https://sman3-malang.sch.id" }
-	],
 	openGraph: {
 		title: {
-			default: "Link Shortener • SMA Negeri 3 Malang",
-			template: "%s • Link Shortener • SMA Negeri 3 Malang"
+			default: "C-Lamat",
+			template: "%s • C-Lamat"
 		},
 		description: ""
 	},
 	twitter: {
 		title: {
-			default: "Link Shortener • SMA Negeri 3 Malang",
-			template: "%s • Link Shortener • SMA Negeri 3 Malang"
+			default: "C-Lamat",
+			template: "%s • C-Lamat"
 		},
 		description: ""
 	},

@@ -37,6 +37,10 @@
     "paths": {
       "@/*": [
         "./*"
+      ],
+      "comlink": [
+        "./build/next.config.withWorker.comlink.js",
+        "./build/next.config.withWorker.comlink.d.ts"
       ]
     },
     "plugins": [
