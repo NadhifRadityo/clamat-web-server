@@ -15,15 +15,13 @@ export const authOptions: NextAuthOptions = {
 				password: { label: "Password", type: "password" }
 			},
 			async authorize(credentials) {
-				if(credentials.username == null || credentials.password == null)
+				if (credentials.username == null || credentials.password == null)
 					throw new Error("Missing username or password");
 				const user = await prisma.user.findFirst({ where: { username: credentials.username } });
-				if(user == null || !(await compare(credentials.password, user.password)))
+				if (user == null || !(await compare(credentials.password, user.password)))
 					throw new Error("Invalid username or password");
 				return {
-					id: user.id,
-					name: user.username,
-					email: user.username
+					id: user.id
 				};
 			}
 		})

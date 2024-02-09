@@ -9,8 +9,10 @@ doetenv.config({ path: path.join(process.cwd(), `.env.${process.env.NODE_ENV}`) 
 const prisma = new PrismaClient();
 
 async function main() {
-	await prisma.user.create({
-		data: {
+	await prisma.user.upsert({
+		where: { username: "admin" },
+		update: {},
+		create: {
 			username: "admin",
 			password: await hash("admin", 12)
 		}
