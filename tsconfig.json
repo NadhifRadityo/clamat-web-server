@@ -3,7 +3,8 @@
     "app",
     "components",
     "utils",
-    ".next/types/**/*.ts"
+    "prisma",
+    ".next/types/**/*.ts",
   ],
   "exclude": [
     "node_modules"

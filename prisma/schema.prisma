@@ -8,7 +8,32 @@ datasource db {
 }
 
 model User {
-    id       String @id @default(auto()) @map("_id") @db.ObjectId
-    username String @unique
-    password String
+    id        String @id @default(auto()) @map("_id") @db.ObjectId
+    username  String @unique
+    password  String
+    modifiers Json
+}
+
+model Miner {
+    id        String          @id @default(auto()) @map("_id") @db.ObjectId
+    name      String
+    birthdate DateTime
+    gender    Boolean
+    sessions  CLamatSession[]
+    modifiers Json
+}
+
+model CLamatNode {
+    id        String          @id @default(auto()) @map("_id") @db.ObjectId
+    sessions  CLamatSession[]
+    modifiers Json
+}
+
+model CLamatSession {
+    id        String     @id @default(auto()) @map("_id") @db.ObjectId
+    nodeId    String     @db.ObjectId
+    node      CLamatNode @relation(fields: [nodeId], references: [id])
+    minerId   String     @db.ObjectId
+    miner     Miner      @relation(fields: [minerId], references: [id])
+    modifiers Json
 }

@@ -16,7 +16,10 @@ export default (phase, { defaultConfig }) => {
 		},
 		serverRuntimeConfig: {
 			get PROJECT_ROOT() { return process.cwd(); },
-			BUILD_PHASE: phase
+			BUILD_PHASE: phase,
+			CLAMAT_SERVER_IP_ADDRESS: "192.168.22.12",
+			CLAMAT_SERVER_IP_SUBNET: 24,
+			CLAMAT_SERVER_ID: 69
 		},
 		publicRuntimeConfig: {
 			PROJECT_NAME: "clamat-web-server",
