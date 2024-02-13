@@ -1,7 +1,10 @@
 import * as net from "net";
+import { EventEmitter } from "stream";
+import TypedEmitter from "typed-emitter"
 import debug0 from "debug";
-import Comlink from "comlink";
 import {
+	BROKER_COMMAND_IDENTIFY,
+	BROKER_COMMAND_IDENTIFY_ACK,
 	BROKER_COMMAND_PING,
 	BROKER_COMMAND_PONG,
 	BROKER_COMMAND_RELAY,
@@ -11,20 +14,28 @@ import {
 } from "./logic.shared";
 const debug = debug0("clamat:broker");
 
+const BrokerIdentifyPacket = newStructType({ // Broker -> Server
+	brokerId: "ushort"
+});
+const BrokerIdentifyAckPacket = newStructType({}); // Server -> Broker
 const BrokerPingPacket = newStructType({}); // Broker -> Server, Server -> Broker
 const BrokerPongPacket = newStructType({}); // Broker -> Server, Server -> Broker
 const BrokerRelayPacket = newStructType({ // Broker -> Server, Server -> Broker
-	userId: "ushort",
+	nodeId: "ushort",
 	packetId: "ushort",
 	flag: "ushort",
 	message: "buffer"
 });
 const BrokerPackets = {
+	[BROKER_COMMAND_IDENTIFY]: BrokerIdentifyPacket as InjectStructPropertyCommand<typeof BrokerIdentifyPacket, typeof BROKER_COMMAND_IDENTIFY>,
+	[BROKER_COMMAND_IDENTIFY_ACK]: BrokerIdentifyAckPacket as InjectStructPropertyCommand<typeof BrokerIdentifyAckPacket, typeof BROKER_COMMAND_IDENTIFY_ACK>,
 	[BROKER_COMMAND_PING]: BrokerPingPacket as InjectStructPropertyCommand<typeof BrokerPingPacket, typeof BROKER_COMMAND_PING>,
 	[BROKER_COMMAND_PONG]: BrokerPongPacket as InjectStructPropertyCommand<typeof BrokerPongPacket, typeof BROKER_COMMAND_PONG>,
 	[BROKER_COMMAND_RELAY]: BrokerRelayPacket as InjectStructPropertyCommand<typeof BrokerRelayPacket, typeof BROKER_COMMAND_RELAY>
 };
 const BrokerPacketNames = {
+	[BROKER_COMMAND_IDENTIFY]: "BROKER_COMMAND_IDENTIFY",
+	[BROKER_COMMAND_IDENTIFY_ACK]: "BROKER_COMMAND_IDENTIFY_ACK",
 	[BROKER_COMMAND_PING]: "BROKER_COMMAND_PING",
 	[BROKER_COMMAND_PONG]: "BROKER_COMMAND_PONG",
 	[BROKER_COMMAND_RELAY]: "BROKER_COMMAND_RELAY"
@@ -120,35 +131,57 @@ const brokerServer = net.createServer(socket => {
 		await writeBytes(tempBuffer, 0, buffer.length + 4);
 	}
 
-	let userHandlesClearTask = context.userHandlesClearTask = null;
-	const userHandles = context.userHandles = new Map<number, number>();
-	const clearUserHandles = context.clearUserHandles = () => {
+	let identity = context.identity = null;
+	let nodeHandlesClearTask = context.nodeHandlesClearTask = null;
+	const nodeHandles = context.nodeHandles = new Map<number, number>();
+	const clearNodeHandles = context.clearNodeHandles = () => {
 		const now = Date.now();
-		for (const [userId, lastUsed] of userHandles.entries()) {
+		for (const [nodeId, lastUsed] of nodeHandles.entries()) {
 			if (now - lastUsed < 2 * 60 * 1000) continue;
-			userHandles.delete(userId);
+			deleteNodeHandle(nodeId);
 		}
-		if (userHandles.size == 0) {
-			userHandlesClearTask = context.userHandlesClearTask = null;
-			return;
-		}
-		userHandlesClearTask = context.userHandlesClearTask = setTimeout(clearUserHandles, 30 * 1000);
 	}
-	const notifyUserHandle = context.notifyUserHandle = (userId: number) => {
-		userHandles.set(userId, Date.now());
-		if (userHandlesClearTask == null)
-			userHandlesClearTask = context.userHandlesClearTask = setTimeout(clearUserHandles, 30 * 1000);
+	const notifyNodeHandle = context.notifyNodeHandle = (nodeId: number) => {
+		const oldSize = nodeHandles.size;
+		nodeHandles.set(nodeId, Date.now());
+		if (nodeHandles.size > oldSize) {
+			debug(`Node ${nodeId} joined to broker ${identity.brokerId}`);
+			emitNodeJoin(nodeId, identity.brokerId);
+		}
+		if (nodeHandlesClearTask == null)
+			nodeHandlesClearTask = context.nodeHandlesClearTask = setTimeout(clearNodeHandles, 30 * 1000);
+	}
+	const deleteNodeHandle = context.deleteNodeHandle = (nodeId: number) => {
+		if (nodeHandles.delete(nodeId)) {
+			debug(`Node ${nodeId} left from broker ${identity.brokerId}`);
+			emitNodeLeave(nodeId, identity.brokerId);
+		}
+		if (nodeHandles.size == 0 && nodeHandlesClearTask != null) {
+			clearTimeout(nodeHandlesClearTask);
+			nodeHandlesClearTask = context.nodeHandlesClearTask = null;
+		}
 	}
 
 	(async () => {
 		while (!socket.closed) {
 			const payload = await readPayload();
-			debug(`Received ${BrokerPacketNames[payload.command]} packet from ${socketAddress.address}:${socketAddress.port}`);
-			if (payload.command == BROKER_COMMAND_PING)
+			debug(`Received ${BrokerPacketNames[payload.command]} packet from ${identity != null ? identity.brokerId : `${socketAddress.address}:${socketAddress.port}`}`);
+			if (payload.command == BROKER_COMMAND_IDENTIFY) {
+				identity = context.identity = {
+					brokerId: payload.brokerId
+				};
+				writePayload({ command: BROKER_COMMAND_IDENTIFY_ACK });
+				return;
+			}
+			if (identity == null) return;
+			if (payload.command == BROKER_COMMAND_PING) {
 				writePayload({ command: BROKER_COMMAND_PONG });
+				return;
+			}
 			if (payload.command == BROKER_COMMAND_RELAY) {
-				notifyUserHandle(payload.userId);
-				emitReceivedUserPacket(payload);
+				notifyNodeHandle(payload.nodeId);
+				emitNodeReceivePacket(payload);
+				return;
 			}
 		}
 	})().catch(e => {
@@ -162,68 +195,6 @@ brokerServer.listen(() => {
 	debug(`Broker server started at ${address.address}:${address.port}`);
 });
 
-interface UserState {
-	id: number;
-	decouple: ReturnType<typeof newDecouplerMachine>;
-	__lastUsed: number;
-}
-const userStates = new Map<number, UserState>();
-setInterval(() => {
-	const now = Date.now();
-	for (const [id, userState] of userStates.entries()) {
-		if (now - userState.__lastUsed < 60 * 1000) continue;
-		debug(`Deleting user state ${id}`);
-		userStates.delete(id);
-	}
-}, 30 * 1000);
-function getUserState(id: number) {
-	let userState = userStates.get(id);
-	if (userState == null) {
-		userState = {
-			id: id,
-			decouple: newDecouplerMachine(2 ** 16 - 1, 32),
-			__lastUsed: Date.now()
-		};
-		userStates.set(id, userState);
-	} else
-		userState.__lastUsed = Date.now();
-	return userState;
-}
-export function deleteUserState(id: number) {
-	debug(`Forcefully deleting user state ${id}`);
-	userStates.delete(id);
-	for (const brokerContext of brokerContexts)
-		brokerContext.userHandles.delete(id);
-}
-function emitReceivedUserPacket(payload: UserReceiverPacketTypes) {
-	const userState = getUserState(payload.userId);
-	if (payload.packetId != null && !userState.decouple(payload.packetId))
-		return;
-	for (const userReceiver of userReceivers)
-		userReceiver(payload.userId, payload);
-}
-
-type UserPacketTypes<T extends keyof typeof BrokerPackets> = ReturnType<(typeof BrokerPackets)[T]["read"]>;
-type UserReceiverPacketTypes = UserPacketTypes<typeof BROKER_COMMAND_RELAY>;
-type UserSenderPacketTypes = UserPacketTypes<typeof BROKER_COMMAND_RELAY>;
-type UserReceiver = (userId: number, packet: UserReceiverPacketTypes) => any;
-const userReceivers = [] as UserReceiver[];
-export async function receiveUserPacket(receiver: UserReceiver) {
-	userReceivers.push(receiver);
-	return Comlink.transfer(() => {
-		const index = userReceivers.indexOf(receiver);
-		if (index == -1) return;
-		userReceivers.splice(index, 1);
-	});
-}
-export async function sendUserPacket(packet: UserSenderPacketTypes) {
-	const promises = [];
-	for (const brokerContext of brokerContexts) {
-		if (!brokerContext.userHandles.has(packet.userId)) continue;
-		promises.push(brokerContext.writePayload(packet));
-	}
-	await Promise.all(promises);
-}
 export async function getBrokerServerAddress() {
 	if (brokerServer.listening)
 		return brokerServer.address() as net.AddressInfo;
@@ -243,4 +214,76 @@ export async function getBrokerServerAddress() {
 		brokerServer.on("listening", onListening);
 		brokerServer.on("error", onError)
 	});
+}
+
+interface NodeState {
+	id: number;
+	decouple: ReturnType<typeof newDecouplerMachine>;
+	sendPacketId: number;
+	__lastUsed: number;
+}
+const nodeStates = new Map<number, NodeState>();
+setInterval(() => {
+	const now = Date.now();
+	for (const [id, nodeState] of nodeStates.entries()) {
+		if (now - nodeState.__lastUsed < 60 * 1000) continue;
+		debug(`Deleting node state ${id}`);
+		nodeStates.delete(id);
+	}
+}, 30 * 1000);
+function getNodeState(id: number) {
+	let nodeState = nodeStates.get(id);
+	if (nodeState == null) {
+		nodeState = {
+			id: id,
+			decouple: newDecouplerMachine(2 ** 16 - 1, 32),
+			sendPacketId: 0,
+			__lastUsed: Date.now()
+		};
+		nodeStates.set(id, nodeState);
+	} else
+		nodeState.__lastUsed = Date.now();
+	return nodeState;
+}
+export function deleteNodeState(id: number) {
+	debug(`Forcefully deleting node state ${id}`);
+	nodeStates.delete(id);
+	for (const brokerContext of brokerContexts)
+		brokerContext.deleteNodeHandle(id);
+}
+function emitNodeJoin(nodeId: number, brokerId: number) {
+	nodeEmitter.emit("join", nodeId, brokerId);
+}
+function emitNodeLeave(nodeId: number, brokerId: number) {
+	nodeEmitter.emit("leave", nodeId, brokerId);
+}
+function emitNodeReceivePacket(payload: NodeReceivePacketTypes) {
+	const nodeState = getNodeState(payload.nodeId);
+	if (payload.packetId != null && !nodeState.decouple(payload.packetId))
+		return;
+	nodeEmitter.emit("receive", payload.nodeId, payload);
+}
+
+type NodePacketTypes<T extends keyof typeof BrokerPackets> = ReturnType<(typeof BrokerPackets)[T]["read"]>;
+type NodeReceivePacketTypes = NodePacketTypes<typeof BROKER_COMMAND_RELAY>;
+type NodeSendPacketTypes = NodePacketTypes<typeof BROKER_COMMAND_RELAY>;
+export const nodeEmitter = new EventEmitter() as TypedEmitter<{
+	join: (nodeId: number, brokerId: number) => void;
+	leave: (nodeId: number, brokerId: number) => void;
+	receive: (nodeId: number, packet: NodeReceivePacketTypes) => void;
+}>;
+export async function sendNodePacket(packet: Omit<NodeSendPacketTypes, "packetId"> & { packetId?: number }) {
+	const promises = [];
+	const nodeState = getNodeState(packet.nodeId);
+	if (packet.packetId == null) {
+		if (nodeState.sendPacketId >= 2 ** 16 - 1)
+			nodeState.sendPacketId = 0;
+		packet.packetId = nodeState.sendPacketId++;
+	}
+	for (const brokerContext of brokerContexts) {
+		if (!brokerContext.nodeHandles.has(packet.nodeId)) continue;
+		debug(`Sending ${BrokerPacketNames[packet.command]} packet to ${brokerContext.identity != null ? brokerContext.identity.brokerId : `${brokerContext.socketAddress.address}:${brokerContext.socketAddress.port}`}`);
+		promises.push(brokerContext.writePayload(packet));
+	}
+	await Promise.all(promises);
 }

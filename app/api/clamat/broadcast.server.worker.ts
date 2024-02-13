@@ -1,4 +1,5 @@
 import * as dgram from "dgram";
+import { AddressInfo } from "net";
 import ip from "ip";
 import debug0 from "debug";
 import {
@@ -10,7 +11,6 @@ import {
 	InjectStructPropertyCommand, newBufferReader, newBufferWriter,
 	newStructType, newTempBuffer, serverCidr, serverId, serverIpAddress
 } from "./logic.shared";
-import { AddressInfo } from "net";
 const debug = debug0("clamat:broadast");
 
 // UDP Broadcast: https://gist.github.com/PierBover/34ab4222a49bfd121b6ab21d60572de6

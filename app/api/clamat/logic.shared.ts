@@ -21,9 +21,11 @@ export const BROADCAST_COMMAND_ADVERTISE = 0;
 export const BROADCAST_COMMAND_DISCOVER = 2;
 export const BROADCAST_COMMAND_DISCOVER_ACK = 3;
 
-export const BROKER_COMMAND_PING = 0;
-export const BROKER_COMMAND_PONG = 1;
-export const BROKER_COMMAND_RELAY = 2;
+export const BROKER_COMMAND_IDENTIFY = 0;
+export const BROKER_COMMAND_IDENTIFY_ACK = 1;
+export const BROKER_COMMAND_PING = 2;
+export const BROKER_COMMAND_PONG = 3;
+export const BROKER_COMMAND_RELAY = 4;
 
 export function crc16(current: Uint8Array, previous: number = 0) {
 	let crc = previous & 0xFFFF;
@@ -39,6 +41,13 @@ export function crc16(current: Uint8Array, previous: number = 0) {
 	}
 	return crc;
 }
+export function uuidv4(rand: () => number = () => Math.random()) {
+	return "10000000-1000-4000-8000-100000000000".replace(/[018]/g, c => {
+		const i = parseInt(c, 10);
+		return (i ^ Math.floor(rand() * 256) & 15 >> i / 4).toString(16);
+	});
+}
+
 export function newBufferReader(buffer: Buffer, offset: number = 0) {
 	let crcOffset = offset;
 	const catchError = <A extends Array<any>, R>(cb: (...args: A) => R) => {
