@@ -14,12 +14,27 @@ model User {
     modifiers Json
 }
 
-model Miner {
+model CLamatMiner {
     id        String          @id @default(auto()) @map("_id") @db.ObjectId
     name      String
     birthdate DateTime
     gender    Boolean
     sessions  CLamatSession[]
+    modifiers Json
+}
+
+model CLamatModule {
+    id        String @id @default(auto()) @map("_id") @db.ObjectId
+    name      String
+    version   String
+    modifiers Json
+
+    @@unique(fields: [name, version], name: "name_version")
+}
+
+model CLamatBroker {
+    id        String @id @default(auto()) @map("_id") @db.ObjectId
+    name      String
     modifiers Json
 }
 
@@ -29,20 +44,15 @@ model CLamatNode {
     modifiers Json
 }
 
-model CLamatBroker {
-    id        String @id @default(auto()) @map("_id") @db.ObjectId
-    name      String
-    modifiers Json
-}
-
 model CLamatSession {
-    id        String     @id @default(auto()) @map("_id") @db.ObjectId
+    id        String      @id @default(auto()) @map("_id") @db.ObjectId
+    runId     Int
     active    Boolean
-    nodeId    String     @db.ObjectId
-    node      CLamatNode @relation(fields: [nodeId], references: [id])
-    minerId   String     @db.ObjectId
-    miner     Miner      @relation(fields: [minerId], references: [id])
+    nodeId    String      @db.ObjectId
+    node      CLamatNode  @relation(fields: [nodeId], references: [id])
+    minerId   String      @db.ObjectId
+    miner     CLamatMiner @relation(fields: [minerId], references: [id])
     modifiers Json
 
-    @@unique(fields: [active, nodeId], name: "active_nodeId")
+    @@unique(fields: [runId, nodeId], name: "runId_nodeId")
 }

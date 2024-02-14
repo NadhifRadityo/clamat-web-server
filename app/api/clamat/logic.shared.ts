@@ -2,6 +2,13 @@ import * as net from "net";
 import ip from "ip";
 import getConfig from "next/config";
 import { newTempDir } from "@/utils/tempDir";
+import seedrandom from "seedrandom";
+import {
+	CLamatModuleBrokerServerPacketDefintionModifier,
+	CLamatModuleNodeBrokerPacketDefintionModifier,
+	CLamatModuleNodeServerPacketDefintionModifier,
+	CLamatModuleServerClientPacketDefintionModifier
+} from "@/prisma/types";
 
 const { serverRuntimeConfig } = getConfig();
 export const serverIpAddress = serverRuntimeConfig.CLAMAT_SERVER_IP_ADDRESS;
@@ -9,9 +16,15 @@ export const serverIpSubnet = serverRuntimeConfig.CLAMAT_SERVER_IP_SUBNET;
 export const serverId = serverRuntimeConfig.CLAMAT_SERVER_ID;
 export const serverCidr = ip.cidrSubnet(`${serverIpAddress}/${serverIpSubnet}`);
 export const tempDir = newTempDir("clamat");
+
 export type InjectStructPropertyCommand<T extends ReturnType<typeof newStructType>, C> =
-	T extends ReturnType<typeof newStructType<infer P extends StructProperty>> ?
+	T extends ReturnType<typeof newStructType<infer P extends StructProperties>> ?
 	ReturnType<typeof newStructType<P & { command: C }>> : never;
+export type ModuleInfo = { name: string, version: string };
+export type NodeBrokerPacketDefintion = CLamatModuleNodeBrokerPacketDefintionModifier["value"];
+export type NodeServerPacketDefintion = CLamatModuleNodeServerPacketDefintionModifier["value"];
+export type BrokerServerPacketDefintion = CLamatModuleBrokerServerPacketDefintionModifier["value"];
+export type ServerClientPacketDefintion = CLamatModuleServerClientPacketDefintionModifier["value"];
 
 export const ERR_PACKET_INCOMPLETE = Symbol.for("PACKET_INCOMPLETE");
 export const ERR_PACKET_UNKNOWN_COMMAND = Symbol.for("PACKET_UNKNOWN_COMMAND");
@@ -25,7 +38,15 @@ export const BROKER_COMMAND_IDENTIFY = 0;
 export const BROKER_COMMAND_IDENTIFY_ACK = 1;
 export const BROKER_COMMAND_PING = 2;
 export const BROKER_COMMAND_PONG = 3;
-export const BROKER_COMMAND_RELAY = 4;
+export const BROKER_COMMAND_MODULE_SYNC = 4;
+export const BROKER_COMMAND_MODULE_SYNC_ACK = 5;
+export const BROKER_COMMAND_MODULE_INSTALL = 6;
+export const BROKER_COMMAND_MODULE_INSTALL_ACK = 7;
+export const BROKER_COMMAND_MODULE_UNINSTALL = 8;
+export const BROKER_COMMAND_MODULE_UNINSTALL_ACK = 9;
+export const BROKER_COMMAND_NODE_JOIN = 10;
+export const BROKER_COMMAND_NODE_LEAVE = 11;
+export const BROKER_COMMAND_NODE_RELAY = 12;
 
 export function crc16(current: Uint8Array, previous: number = 0) {
 	let crc = previous & 0xFFFF;
@@ -46,6 +67,41 @@ export function uuidv4(rand: () => number = () => Math.random()) {
 		const i = parseInt(c, 10);
 		return (i ^ Math.floor(rand() * 256) & 15 >> i / 4).toString(16);
 	});
+}
+export function properUuidv4(uuid: string) {
+	const [matcher] = [...uuid.matchAll(/^([0-9a-fA-F]{8})-?([0-9a-fA-F]{4})-?([0-9a-fA-F]{4})-?([0-9a-fA-F]{4})-?([0-9a-fA-F]{12})$/g)];
+	return `${matcher[1]}-${matcher[2]}-${matcher[3]}-${matcher[4]}-${matcher[5]}`;
+}
+export function u8touuidv4(id: number) {
+	if (id < 0 || id >= 256) throw new Error("Id out of range");
+	const result = uuidv4(seedrandom(`u8-${id}`));
+	return result.substring(0, result.length - 1) + id.toString(16);
+}
+export function uuidv4tou8(id: string) {
+	id = properUuidv4(id);
+	const result = parseInt(id.substring(id.length - 1), 16);
+	if (u8touuidv4(result) != id) throw new Error("Invalid u8touuidv4");
+	return result;
+}
+export function u16touuidv4(id: number) {
+	if (id < 0 || id >= 65536) throw new Error("Id out of range");
+	const result = uuidv4(seedrandom(`u16-${id}`));
+	return result.substring(0, result.length - 2) + id.toString(16);
+}
+export function uuidv4tou16(id: string) {
+	id = properUuidv4(id);
+	const result = parseInt(id.substring(id.length - 2), 16);
+	if (u16touuidv4(result) != id) throw new Error("Invalid u16touuidv4");
+	return result;
+}
+export function pascalToSnake(string: string) {
+	return string.split(/(?=[A-Z])/).join("_").toLowerCase();
+}
+export function pascalToScreamingSnake(string: string) {
+	return string.split(/(?=[A-Z])/).join("_").toUpperCase();
+}
+export function snakeToPascal(string: string) {
+	return string.split("_").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join("");
 }
 
 export function newBufferReader(buffer: Buffer, offset: number = 0) {
@@ -236,6 +292,9 @@ export function newBufferWriter(buffer: Buffer, offset: number = 0) {
 		offset: _offset
 	}
 }
+export type BufferReader = ReturnType<typeof newBufferReader>;
+export type BufferWriter = ReturnType<typeof newBufferWriter>;
+
 export type StructPropertyTypes = {
 	"ubyte": number,
 	"ushort": number,
@@ -250,64 +309,146 @@ export type StructPropertyTypes = {
 	"buffer": Buffer,
 	"string": string
 };
-export type StructProperty = Record<string, keyof StructPropertyTypes>;
-export type Struct<P extends StructProperty> = { [K in keyof P]:
-	P[K] extends keyof StructPropertyTypes ? StructPropertyTypes[P[K]] : P[K] };
-export function newStructType<P extends StructProperty>(properties: P) {
-	const read = (bufferReader: ReturnType<typeof newBufferReader>) => {
-		const struct = {};
-		for (const [key, type] of Object.entries(properties)) {
-			let value: any;
-			if (type == "ubyte") value = bufferReader.readUByte();
-			if (type == "ushort") value = bufferReader.readUShort();
-			if (type == "uint") value = bufferReader.readUInt();
-			if (type == "ulong") value = bufferReader.readULong();
-			if (type == "byte") value = bufferReader.readByte();
-			if (type == "short") value = bufferReader.readShort();
-			if (type == "int") value = bufferReader.readInt();
-			if (type == "long") value = bufferReader.readLong();
-			if (type == "float") value = bufferReader.readFloat();
-			if (type == "double") value = bufferReader.readDouble();
-			if (type == "buffer") value = bufferReader.readBuffer();
-			if (type == "string") value = bufferReader.readString();
-			struct[key] = value;
+export type StructTypes = keyof StructPropertyTypes | { properties: StructProperties } | (StructTypes | "[" | "]" | "[]")[];
+export type StructProperties = Record<string, StructTypes>;
+export type StructType<T> =
+	T extends keyof StructPropertyTypes ? StructPropertyTypes[T] :
+	T extends { properties: infer P extends StructProperties } ? Struct<P> :
+	T extends Array<any> ? (
+		T extends [infer R, "[]"] ? StructType<R>[] :
+		T extends ["[", ...infer R, "]"] ? { [K in keyof R]: StructType<R[K]> } :
+		T extends [infer R] ? StructType<R> :
+		never) :
+	T;
+export type Struct<P extends StructProperties> = { [K in keyof P]: StructType<P[K]> };
+export type ValidateStructProperties<P extends StructProperties, S = Struct<P>> = P & { [K in keyof S]: S[K] extends never ? never : {} };
+export function newStructType<P extends StructProperties>(properties: ValidateStructProperties<P>) {
+	const propertyEntries = Object.entries(properties);
+	const readImpl = (type: any, bufferReader: BufferReader) => {
+		if (type instanceof Array) {
+			if (type[1] == "[]") {
+				const result = [];
+				const length = bufferReader.readUShort();
+				for (let i = 0; i < length; i++)
+					result.push(readImpl(type[0], bufferReader));
+				return result;
+			}
+			if (type[0] == "[" && type.at(-1) == "]") {
+				const result = [];
+				for (let i = 1; i < type.length - 1; i++)
+					result.push(readImpl(type[i], bufferReader));
+				return result;
+			}
+			if (type.length == 1)
+				return readImpl(type[0], bufferReader);
 		}
+		if (typeof type == "object") {
+			if (type.properties != null && type.read != null)
+				return type.read(bufferReader);
+		}
+		if (typeof type == "string") {
+			if (type == "ubyte") return bufferReader.readUByte();
+			if (type == "ushort") return bufferReader.readUShort();
+			if (type == "uint") return bufferReader.readUInt();
+			if (type == "ulong") return bufferReader.readULong();
+			if (type == "byte") return bufferReader.readByte();
+			if (type == "short") return bufferReader.readShort();
+			if (type == "int") return bufferReader.readInt();
+			if (type == "long") return bufferReader.readLong();
+			if (type == "float") return bufferReader.readFloat();
+			if (type == "double") return bufferReader.readDouble();
+			if (type == "buffer") return bufferReader.readBuffer();
+			if (type == "string") return bufferReader.readString();
+		}
+		throw new Error(`Unknown type: ${type}`);
+	}
+	const read = (bufferReader: BufferReader) => {
+		const struct = {};
+		for (const [key, type] of propertyEntries)
+			struct[key] = readImpl(type, bufferReader);
 		return struct as Struct<P>;
 	}
-	const write = (struct: Struct<P>, bufferWriter: ReturnType<typeof newBufferWriter>) => {
-		for (const [key, type] of Object.entries(properties)) {
-			const value = struct[key] as any;
-			if (type == "ubyte") bufferWriter.writeUByte(value);
-			if (type == "ushort") bufferWriter.writeUShort(value);
-			if (type == "uint") bufferWriter.writeUInt(value);
-			if (type == "ulong") bufferWriter.writeULong(value);
-			if (type == "byte") bufferWriter.writeByte(value);
-			if (type == "short") bufferWriter.writeShort(value);
-			if (type == "int") bufferWriter.writeInt(value);
-			if (type == "long") bufferWriter.writeLong(value);
-			if (type == "float") bufferWriter.writeFloat(value);
-			if (type == "double") bufferWriter.writeDouble(value);
-			if (type == "buffer") bufferWriter.writeBuffer(value);
-			if (type == "string") bufferWriter.writeString(value);
+	const writeImpl = (type: any, value: any, bufferWriter: BufferWriter) => {
+		if (type instanceof Array) {
+			if (type[1] == "[]") {
+				bufferWriter.writeUShort(value.length);
+				for (let i = 0; i < value.length; i++)
+					writeImpl(type[0], value[i], bufferWriter);
+				return;
+			}
+			if (type[0] == "[" && type.at(-1) == "]") {
+				for (let i = 1; i < type.length - 1; i++)
+					writeImpl(type[i], value[i - 1], bufferWriter);
+				return;
+			}
+			if (type.length == 1)
+				return writeImpl(type[0], value, bufferWriter);
 		}
+		if (typeof type == "object") {
+			if (type.properties != null && type.read != null)
+				return type.write(value, bufferWriter);
+		}
+		if (typeof type == "string") {
+			if (type == "ubyte") return bufferWriter.writeUByte(value);
+			if (type == "ushort") return bufferWriter.writeUShort(value);
+			if (type == "uint") return bufferWriter.writeUInt(value);
+			if (type == "ulong") return bufferWriter.writeULong(value);
+			if (type == "byte") return bufferWriter.writeByte(value);
+			if (type == "short") return bufferWriter.writeShort(value);
+			if (type == "int") return bufferWriter.writeInt(value);
+			if (type == "long") return bufferWriter.writeLong(value);
+			if (type == "float") return bufferWriter.writeFloat(value);
+			if (type == "double") return bufferWriter.writeDouble(value);
+			if (type == "buffer") return bufferWriter.writeBuffer(value);
+			if (type == "string") return bufferWriter.writeString(value);
+		}
+		throw new Error(`Unknown type: ${type}`);
+	}
+	const write = (struct: Struct<P>, bufferWriter: ReturnType<typeof newBufferWriter>) => {
+		for (const [key, type] of propertyEntries)
+			writeImpl(type, struct[key], bufferWriter);
+	}
+	const lengthImpl = (type: any, value: any) => {
+		if (type instanceof Array) {
+			if (type[1] == "[]") {
+				let result = 2;
+				for (let i = 0; i < value.length; i++)
+					result += lengthImpl(type[0], value[i]);
+				return result;
+			}
+			if (type[0] == "[" && type.at(-1) == "]") {
+				let result = 0;
+				for (let i = 1; i < type.length - 1; i++)
+					result += lengthImpl(type[i], value[i - 1]);
+				return result;
+			}
+			if (type.length == 1)
+				return lengthImpl(type[0], value);
+		}
+		if (typeof type == "object") {
+			if (type.properties != null && type.read != null)
+				return type.length(value);
+		}
+		if (typeof type == "string") {
+			if (type == "ubyte") return 1;
+			if (type == "ushort") return 2;
+			if (type == "uint") return 4;
+			if (type == "ulong") return 8;
+			if (type == "byte") return 1;
+			if (type == "short") return 2;
+			if (type == "int") return 4;
+			if (type == "long") return 8;
+			if (type == "float") return 4;
+			if (type == "double") return 8;
+			if (type == "buffer") return 2 + value.length;
+			if (type == "string") return 2 + Buffer.byteLength(value, "ascii");
+		}
+		throw new Error(`Unknown type: ${type}`);
 	}
 	const length = (struct: Struct<P>) => {
 		let result = 0;
-		for (const [key, type] of Object.entries(properties)) {
-			const value = struct[key] as any;
-			if (type == "ubyte") result += 1;
-			if (type == "ushort") result += 2;
-			if (type == "uint") result += 4;
-			if (type == "ulong") result += 8;
-			if (type == "byte") result += 1;
-			if (type == "short") result += 2;
-			if (type == "int") result += 4;
-			if (type == "long") result += 8;
-			if (type == "float") result += 4;
-			if (type == "double") result += 8;
-			if (type == "buffer") result += 2 + value.length;
-			if (type == "string") result += 2 + Buffer.byteLength(value, "ascii");
-		}
+		for (const [key, type] of propertyEntries)
+			result += lengthImpl(type, struct[key]);
 		return result;
 	}
 	return {

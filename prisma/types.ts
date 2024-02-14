@@ -1,3 +1,5 @@
+import { StructProperties } from "@/app/api/clamat/logic.shared";
+
 export interface Modifier {
 	name: string;
 	value?: any;
@@ -14,19 +16,19 @@ export interface UserModifierMiner extends UserModifier {
 }
 export type UserModifiers = UserModifierIsOperator | UserModifierMiner;
 
-export interface MinerModifier extends Modifier { }
-export interface MinerModifierOccupation extends MinerModifier {
+export interface CLamatMinerModifier extends Modifier { }
+export interface CLamatMinerModifierOccupation extends CLamatMinerModifier {
 	name: "Occupation";
 	value: string;
 }
-export interface MinerModifierContact extends MinerModifier {
+export interface CLamatMinerModifierContact extends CLamatMinerModifier {
 	name: "Contact";
 	value: {
 		name: string;
 		contact: string;
 	};
 }
-export interface MinerModifierMedicalHistory extends MinerModifier {
+export interface CLamatMinerModifierMedicalHistory extends CLamatMinerModifier {
 	name: "MedicalHistory";
 	value: {
 		weight: number;
@@ -39,7 +41,7 @@ export interface MinerModifierMedicalHistory extends MinerModifier {
 		immunizations: string;
 	}
 }
-export interface MinerModifierFamilyHistory extends MinerModifier {
+export interface CLamatMinerModifierFamilyHistory extends CLamatMinerModifier {
 	name: "FamilyHistory";
 	value: {
 		geneticConditions: string;
@@ -47,7 +49,7 @@ export interface MinerModifierFamilyHistory extends MinerModifier {
 		cancer: string;
 	}
 }
-export interface MinerModifierSocialHistory extends MinerModifier {
+export interface CLamatMinerModifierSocialHistory extends CLamatMinerModifier {
 	name: "SocialHistory";
 	value: {
 		smoking: string;
@@ -56,10 +58,131 @@ export interface MinerModifierSocialHistory extends MinerModifier {
 		physicalActivity: string;
 	}
 }
-export type MinerModifiers = MinerModifierOccupation | MinerModifierContact | MinerModifierMedicalHistory | MinerModifierFamilyHistory | MinerModifierSocialHistory;
+export type CLamatMinerModifiers = CLamatMinerModifierOccupation | CLamatMinerModifierContact | CLamatMinerModifierMedicalHistory | CLamatMinerModifierFamilyHistory | CLamatMinerModifierSocialHistory;
+
+export interface CLamatModuleModifier extends Modifier { }
+export interface CLamatModuleNodeOptionDefinitionModifier extends CLamatModuleModifier {
+	name: "NodeOptionDefinition",
+	value: {
+		name: string;
+		title: string;
+		type: string;
+		defaultValue?: any;
+		description?: string;
+	}
+}
+export interface CLamatModuleBrokerOptionDefinitionModifier extends CLamatModuleModifier {
+	name: "BrokerOptionDefinition",
+	value: {
+		name: string;
+		title: string;
+		type: string;
+		defaultValue?: any;
+		description: string;
+	}
+}
+export interface CLamatModuleServerOptionDefinitionModifier extends CLamatModuleModifier {
+	name: "ServerOptionDefinition",
+	value: {
+		name: string;
+		title: string;
+		type: string;
+		defaultValue?: any;
+		description: string;
+	}
+}
+export interface CLamatModuleClientOptionDefinitionModifier extends CLamatModuleModifier {
+	name: "ClientOptionDefinition",
+	value: {
+		name: string;
+		title: string;
+		type: string;
+		defaultValue?: any;
+		description: string;
+	}
+}
+export interface CLamatModuleNodeBrokerPacketDefintionModifier extends CLamatModuleModifier {
+	name: "NodeBrokerPacketDefintion",
+	value: {
+		name: string;
+		command: number;
+		properties: StructProperties;
+	}
+}
+export interface CLamatModuleNodeServerPacketDefintionModifier extends CLamatModuleModifier {
+	name: "NodeServerPacketDefintion",
+	value: {
+		name: string;
+		command: number;
+		properties: StructProperties;
+	}
+}
+export interface CLamatModuleBrokerServerPacketDefintionModifier extends CLamatModuleModifier {
+	name: "BrokerServerPacketDefintion",
+	value: {
+		name: string;
+		command: number;
+		properties: StructProperties;
+	}
+}
+export interface CLamatModuleServerClientPacketDefintionModifier extends CLamatModuleModifier {
+	name: "ServerClientPacketDefintion",
+	value: {
+		name: string;
+		command: number;
+		properties: StructProperties;
+	}
+}
+export interface CLamatModuleNodeSourceCodeModifier extends CLamatModuleModifier {
+	name: "NodeSourceCode",
+	value: string; // (node: CLamatNode) => string
+}
+export interface CLamatModuleBrokerSourceCodeModifier extends CLamatModuleModifier {
+	name: "BrokerSourceCode",
+	value: string; // (broker: CLamatBroker) => string
+}
+export interface CLamatModuleServerSourceCodeModifier extends CLamatModuleModifier {
+	name: "ServerSourceCode",
+	value: string; // () => string, handles 2 callback, node packets and broker packets
+}
+export interface CLamatModuleClientSourceCodeModifier extends CLamatModuleModifier {
+	name: "ClientSourceCode",
+	value: string; // () => string
+}
+export type CLamatModuleModifiers =
+	CLamatModuleNodeOptionDefinitionModifier | CLamatModuleBrokerOptionDefinitionModifier | CLamatModuleServerOptionDefinitionModifier | CLamatModuleClientOptionDefinitionModifier |
+	CLamatModuleNodeBrokerPacketDefintionModifier | CLamatModuleNodeServerPacketDefintionModifier | CLamatModuleBrokerServerPacketDefintionModifier | CLamatModuleServerClientPacketDefintionModifier |
+	CLamatModuleNodeSourceCodeModifier | CLamatModuleBrokerSourceCodeModifier | CLamatModuleServerSourceCodeModifier | CLamatModuleClientSourceCodeModifier;
+
+export interface CLamatBrokerModifier extends Modifier { }
+export interface CLamatBrokerModuleModifier extends CLamatBrokerModifier {
+	name: "Module";
+	value: string;
+}
+export interface CLamatBrokerModuleOptionModifier extends CLamatBrokerModifier {
+	name: "ModuleOption",
+	value: {
+		module: string;
+		id: string;
+		value: any;
+	}
+}
+export type CLamatBrokerModifiers = CLamatBrokerModuleModifier | CLamatBrokerModuleOptionModifier;
 
 export interface CLamatNodeModifier extends Modifier { }
-export type CLamatNodeModifiers = never;
+export interface CLamatNodeModuleModifier extends CLamatNodeModifier {
+	name: "Module";
+	value: string;
+}
+export interface CLamatNodeModuleOptionModifier extends CLamatNodeModifier {
+	name: "ModuleOption",
+	value: {
+		module: string;
+		id: string;
+		value: any;
+	}
+}
+export type CLamatNodeModifiers = CLamatNodeModuleModifier | CLamatNodeModuleOptionModifier;
 
 export interface CLamatSessionModifier extends Modifier { }
 export type CLamatSessionModifiers = never;
