@@ -30,12 +30,13 @@ const BroadcastPackets = {
 	[BROADCAST_COMMAND_ADVERTISE]: BroadcastAdvertisePacket as InjectStructPropertyCommand<typeof BroadcastAdvertisePacket, typeof BROADCAST_COMMAND_ADVERTISE>,
 	[BROADCAST_COMMAND_DISCOVER]: BroadcastDiscoverPacket as InjectStructPropertyCommand<typeof BroadcastDiscoverPacket, typeof BROADCAST_COMMAND_DISCOVER>,
 	[BROADCAST_COMMAND_DISCOVER_ACK]: BroadcastDiscoverAckPacket as InjectStructPropertyCommand<typeof BroadcastDiscoverAckPacket, typeof BROADCAST_COMMAND_DISCOVER_ACK>
-}
+};
 const BroadcastPacketNames = {
 	[BROADCAST_COMMAND_ADVERTISE]: "BROADCAST_COMMAND_ADVERTISE",
 	[BROADCAST_COMMAND_DISCOVER]: "BROADCAST_COMMAND_DISCOVER",
 	[BROADCAST_COMMAND_DISCOVER_ACK]: "BROADCAST_COMMAND_DISCOVER_ACK",
-}
+};
+type BroadcastPacketStructs = ReturnType<(typeof BroadcastPackets)[keyof typeof BroadcastPackets]["read"]>;
 const getBroadcastTempBuffer = newTempBuffer();
 function decodeBroadcastPacket(buffer: Buffer) {
 	const reader = newBufferReader(buffer);
@@ -49,7 +50,7 @@ function decodeBroadcastPacket(buffer: Buffer) {
 		throw ERR_PACKET_INVALID_CRC;
 	return struct;
 }
-function encodeBroadcastPacket(object: ReturnType<typeof decodeBroadcastPacket>) {
+function encodeBroadcastPacket(object: BroadcastPacketStructs) {
 	const command = object.command;
 	const structType = BroadcastPackets[command] as any;
 	if (structType == null)
@@ -63,7 +64,7 @@ function encodeBroadcastPacket(object: ReturnType<typeof decodeBroadcastPacket>)
 }
 
 const broadcastSocket = dgram.createSocket("udp4");
-const broadcastSendMessage = (remote: dgram.RemoteInfo, object: ReturnType<typeof decodeBroadcastPacket>) => {
+const broadcastSendMessage = (remote: dgram.RemoteInfo, object: BroadcastPacketStructs) => {
 	const responseBuffer = encodeBroadcastPacket(object);
 	debug(`Sent ${BroadcastPacketNames[object.command]} packet to ${remote != null ? `${remote.address}:${remote.port}` : "broadcast"}`);
 	if (remote != null)

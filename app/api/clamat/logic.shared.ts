@@ -17,6 +17,7 @@ export const serverId = serverRuntimeConfig.CLAMAT_SERVER_ID;
 export const serverCidr = ip.cidrSubnet(`${serverIpAddress}/${serverIpSubnet}`);
 export const tempDir = newTempDir("clamat");
 
+export type DistributiveOmit<T, K extends keyof any> = T extends any ? Omit<T, K> : never;
 export type InjectStructPropertyCommand<T extends ReturnType<typeof newStructType>, C> =
 	T extends ReturnType<typeof newStructType<infer P extends StructProperties>> ?
 	ReturnType<typeof newStructType<P & { command: C }>> : never;
@@ -25,6 +26,9 @@ export type NodeBrokerPacketDefintion = CLamatModuleNodeBrokerPacketDefintionMod
 export type NodeServerPacketDefintion = CLamatModuleNodeServerPacketDefintionModifier["value"];
 export type BrokerServerPacketDefintion = CLamatModuleBrokerServerPacketDefintionModifier["value"];
 export type ServerClientPacketDefintion = CLamatModuleServerClientPacketDefintionModifier["value"];
+
+export const CODE_OK = 0;
+export const CODE_ERROR = 1;
 
 export const ERR_PACKET_INCOMPLETE = Symbol.for("PACKET_INCOMPLETE");
 export const ERR_PACKET_UNKNOWN_COMMAND = Symbol.for("PACKET_UNKNOWN_COMMAND");
@@ -44,9 +48,32 @@ export const BROKER_COMMAND_MODULE_INSTALL = 6;
 export const BROKER_COMMAND_MODULE_INSTALL_ACK = 7;
 export const BROKER_COMMAND_MODULE_UNINSTALL = 8;
 export const BROKER_COMMAND_MODULE_UNINSTALL_ACK = 9;
-export const BROKER_COMMAND_NODE_JOIN = 10;
-export const BROKER_COMMAND_NODE_LEAVE = 11;
-export const BROKER_COMMAND_NODE_RELAY = 12;
+export const BROKER_COMMAND_MODULE_OPTION_GET = 10;
+export const BROKER_COMMAND_MODULE_OPTION_GET_ACK = 11;
+export const BROKER_COMMAND_MODULE_OPTION_SET = 12;
+export const BROKER_COMMAND_MODULE_OPTION_SET_ACK = 13;
+export const BROKER_COMMAND_MODULE_OPTION_DELETE = 14;
+export const BROKER_COMMAND_MODULE_OPTION_DELETE_ACK = 15;
+export const BROKER_COMMAND_MODULE_OPTION_LIST = 16;
+export const BROKER_COMMAND_MODULE_OPTION_LIST_ACK = 17;
+export const BROKER_COMMAND_NODE_JOIN = 18;
+export const BROKER_COMMAND_NODE_LEAVE = 19;
+export const BROKER_COMMAND_NODE_RELAY = 20;
+
+export const NODE_COMMAND_PING = 0;
+export const NODE_COMMAND_PONG = 1;
+export const NODE_COMMAND_MODULE_SYNC = 2;
+export const NODE_COMMAND_MODULE_SYNC_ACK = 3;
+export const NODE_COMMAND_MODULE_FLASH = 4;
+export const NODE_COMMAND_MODULE_FLASH_ACK = 5;
+export const NODE_COMMAND_MODULE_OPTION_GET = 6;
+export const NODE_COMMAND_MODULE_OPTION_GET_ACK = 7;
+export const NODE_COMMAND_MODULE_OPTION_SET = 8;
+export const NODE_COMMAND_MODULE_OPTION_SET_ACK = 9;
+export const NODE_COMMAND_MODULE_OPTION_DELETE = 10;
+export const NODE_COMMAND_MODULE_OPTION_DELETE_ACK = 11;
+export const NODE_COMMAND_MODULE_OPTION_LIST = 12;
+export const NODE_COMMAND_MODULE_OPTION_LIST_ACK = 13;
 
 export function crc16(current: Uint8Array, previous: number = 0) {
 	let crc = previous & 0xFFFF;
@@ -61,6 +88,41 @@ export function crc16(current: Uint8Array, previous: number = 0) {
 		}
 	}
 	return crc;
+}
+export function adler32(str: string, seed?: string) {
+	const L = str.length;
+	let a = 1;
+	let b = 0;
+	if (typeof seed === "number") {
+		a = seed & 0xFFFF;
+		b = seed >>> 16;
+	}
+	for (let i = 0; i < L;) {
+		let M = Math.min(L - i, 2918);
+		while (M > 0) {
+			let c = str.charCodeAt(i++);
+			let d;
+			if (c < 0x80) a += c; else if (c < 0x800) {
+				a += 192 | ((c >> 6) & 31); b += a; --M;
+				a += 128 | (c & 63);
+			} else if (c >= 0xD800 && c < 0xE000) {
+				c = (c & 1023) + 64;
+				d = str.charCodeAt(i++) & 1023;
+				a += 240 | ((c >> 8) & 7); b += a; --M;
+				a += 128 | ((c >> 2) & 63); b += a; --M;
+				a += 128 | ((d >> 6) & 15) | ((c & 3) << 4); b += a; --M;
+				a += 128 | (d & 63);
+			} else {
+				a += 224 | ((c >> 12) & 15); b += a; --M;
+				a += 128 | ((c >> 6) & 63); b += a; --M;
+				a += 128 | (c & 63);
+			}
+			b += a; --M;
+		}
+		a = (15 * (a >>> 16) + (a & 65535));
+		b = (15 * (b >>> 16) + (b & 65535));
+	}
+	return Math.abs(((b % 65521) << 16) | (a % 65521));
 }
 export function uuidv4(rand: () => number = () => Math.random()) {
 	return "10000000-1000-4000-8000-100000000000".replace(/[018]/g, c => {
@@ -179,6 +241,9 @@ export function newBufferReader(buffer: Buffer, offset: number = 0) {
 		offset += length;
 		return result;
 	});
+	const readJson = catchError(() => {
+		return JSON.parse(readString());
+	});
 	const readCRC = catchError(() => {
 		const expectedCrc = crc16(buffer.subarray(crcOffset, offset));
 		const receivedCrc = readUShort();
@@ -201,6 +266,7 @@ export function newBufferReader(buffer: Buffer, offset: number = 0) {
 		readDouble,
 		readBuffer,
 		readString,
+		readJson,
 		readCRC,
 		offset: _offset
 	}
@@ -268,6 +334,9 @@ export function newBufferWriter(buffer: Buffer, offset: number = 0) {
 		buffer.write(value, "ascii");
 		offset += value.length;
 	});
+	const writeJson = catchError((value: any) => {
+		writeString(JSON.stringify(value));
+	});
 	const writeCRC = catchError(() => {
 		writeUShort(crc16(buffer.subarray(crcOffset, offset)));
 	});
@@ -288,6 +357,7 @@ export function newBufferWriter(buffer: Buffer, offset: number = 0) {
 		writeDouble,
 		writeBuffer,
 		writeString,
+		writeJson,
 		writeCRC,
 		offset: _offset
 	}
@@ -307,7 +377,8 @@ export type StructPropertyTypes = {
 	"float": number,
 	"double": number,
 	"buffer": Buffer,
-	"string": string
+	"string": string,
+	"json": any
 };
 export type StructTypes = keyof StructPropertyTypes | { properties: StructProperties } | (StructTypes | "[" | "]" | "[]")[];
 export type StructProperties = Record<string, StructTypes>;
@@ -359,6 +430,7 @@ export function newStructType<P extends StructProperties>(properties: ValidateSt
 			if (type == "double") return bufferReader.readDouble();
 			if (type == "buffer") return bufferReader.readBuffer();
 			if (type == "string") return bufferReader.readString();
+			if (type == "json") return bufferReader.readJson();
 		}
 		throw new Error(`Unknown type: ${type}`);
 	}
@@ -401,6 +473,7 @@ export function newStructType<P extends StructProperties>(properties: ValidateSt
 			if (type == "double") return bufferWriter.writeDouble(value);
 			if (type == "buffer") return bufferWriter.writeBuffer(value);
 			if (type == "string") return bufferWriter.writeString(value);
+			if (type == "json") return bufferWriter.writeJson(value);
 		}
 		throw new Error(`Unknown type: ${type}`);
 	}
@@ -442,6 +515,7 @@ export function newStructType<P extends StructProperties>(properties: ValidateSt
 			if (type == "double") return 8;
 			if (type == "buffer") return 2 + value.length;
 			if (type == "string") return 2 + Buffer.byteLength(value, "ascii");
+			if (type == "json") return 2 + Buffer.byteLength(JSON.stringify(value), "ascii");
 		}
 		throw new Error(`Unknown type: ${type}`);
 	}

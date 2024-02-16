@@ -3,6 +3,9 @@ import { EventEmitter } from "stream";
 import TypedEmitter from "typed-emitter"
 import debug0 from "debug";
 import {
+	CODE_OK,
+	CODE_ERROR,
+	ERR_PACKET_UNKNOWN_COMMAND,
 	BROKER_COMMAND_IDENTIFY,
 	BROKER_COMMAND_IDENTIFY_ACK,
 	BROKER_COMMAND_PING,
@@ -13,12 +16,19 @@ import {
 	BROKER_COMMAND_MODULE_INSTALL_ACK,
 	BROKER_COMMAND_MODULE_UNINSTALL,
 	BROKER_COMMAND_MODULE_UNINSTALL_ACK,
+	BROKER_COMMAND_MODULE_OPTION_GET,
+	BROKER_COMMAND_MODULE_OPTION_GET_ACK,
+	BROKER_COMMAND_MODULE_OPTION_SET,
+	BROKER_COMMAND_MODULE_OPTION_SET_ACK,
+	BROKER_COMMAND_MODULE_OPTION_DELETE,
+	BROKER_COMMAND_MODULE_OPTION_DELETE_ACK,
+	BROKER_COMMAND_MODULE_OPTION_LIST,
+	BROKER_COMMAND_MODULE_OPTION_LIST_ACK,
 	BROKER_COMMAND_NODE_JOIN,
 	BROKER_COMMAND_NODE_LEAVE,
 	BROKER_COMMAND_NODE_RELAY,
-	ERR_PACKET_UNKNOWN_COMMAND,
 	InjectStructPropertyCommand, newBufferReader, newBufferWriter,
-	newStructType, newTempBuffer, socketReader, socketWriter, BrokerServerPacketDefintion, ModuleInfo
+	newStructType, newTempBuffer, socketReader, socketWriter, BrokerServerPacketDefintion, ModuleInfo, DistributiveOmit, NodeBrokerPacketDefintion,
 } from "./logic.shared";
 const debug = debug0("clamat:broker");
 
@@ -26,40 +36,93 @@ const BrokerIdentifyPacket = newStructType({ // Broker -> Server
 	brokerId: "ushort"
 });
 const BrokerIdentifyAckPacket = newStructType({}); // Server -> Broker
-const BrokerPingPacket = newStructType({}); // Broker -> Server, Server -> Broker
-const BrokerPongPacket = newStructType({}); // Broker -> Server, Server -> Broker
+const BrokerPingPacket = newStructType({ // Broker -> Server, Server -> Broker
+	user: "ushort"
+});
+const BrokerPongPacket = newStructType({ // Broker -> Server, Server -> Broker
+	user: "ushort"
+});
 const BrokerModuleSyncPacket = newStructType({ // Broker -> Server, Server -> Broker
-	packetId: "ushort",
+	user: "ushort",
 	modules: [newStructType({
 		name: "string",
 		version: "string"
 	}), "[]"] as const
 });
 const BrokerModuleSyncAckPacket = newStructType({ // Broker -> Server, Server -> Broker
-	packetId: "ushort",
+	user: "ushort",
+	status: "ubyte",
+	message: "string",
 	modules: [newStructType({
 		name: "string",
 		version: "string"
 	}), "[]"] as const
 });
 const BrokerModuleInstallPacket = newStructType({ // Server -> Broker
-	packetId: "ushort",
+	user: "ushort",
 	name: "string",
 	version: "string",
-	packetDefinitions: "string",
+	nodeBrokerPacketDefinitions: "json",
+	brokerServerPacketDefinitions: "json",
 	sourceCode: "string"
 });
 const BrokerModuleInstallAckPacket = newStructType({ // Broker -> Server
-	packetId: "ushort",
-	status: "ubyte"
+	user: "ushort",
+	status: "ubyte",
+	message: "string"
 });
 const BrokerModuleUninstallPacket = newStructType({ // Server -> Broker
-	packetId: "ushort",
+	user: "ushort",
 	name: "string"
 });
 const BrokerModuleUninstallAckPacket = newStructType({ // Broker -> Server
-	packetId: "ushort",
-	status: "ubyte"
+	user: "ushort",
+	status: "ubyte",
+	message: "string"
+});
+// BrokerModuleRequestInstall
+// BrokerModuleRequestUninstall
+const BrokerModuleOptionGetPacket = newStructType({ // Broker -> Server, Server -> Broker
+	user: "ushort",
+	name: "string",
+	ids: ["string", "[]"] as const
+});
+const BrokerModuleOptionGetAckPacket = newStructType({ // Broker -> Server, Server -> Broker
+	user: "ushort",
+	status: "ubyte",
+	message: "string",
+	values: ["json", "[]"] as const
+});
+const BrokerModuleOptionSetPacket = newStructType({ // Broker -> Server, Server -> Broker
+	user: "ushort",
+	name: "string",
+	ids: ["string", "[]"] as const,
+	values: ["json", "[]"] as const
+});
+const BrokerModuleOptionSetAckPacket = newStructType({ // Broker -> Server, Server -> Broker
+	user: "ushort",
+	status: "ubyte",
+	message: "string"
+});
+const BrokerModuleOptionDeletePacket = newStructType({ // Broker -> Server, Server -> Broker
+	user: "ushort",
+	name: "string",
+	ids: ["string", "[]"] as const
+});
+const BrokerModuleOptionDeleteAckPacket = newStructType({ // Broker -> Server, Server -> Broker
+	user: "ushort",
+	status: "ubyte",
+	message: "string"
+});
+const BrokerModuleOptionListPacket = newStructType({ // Broker -> Server, Server -> Broker
+	user: "ushort",
+	name: "string"
+});
+const BrokerModuleOptionListAckPacket = newStructType({ // Broker -> Server, Server -> Broker
+	user: "ushort",
+	status: "ubyte",
+	message: "string",
+	ids: ["string", "[]"] as const
 });
 const BrokerNodeJoinPacket = newStructType({ // Broker -> Server
 	nodeId: "ushort"
@@ -84,6 +147,14 @@ const BrokerPackets = {
 	[BROKER_COMMAND_MODULE_INSTALL_ACK]: BrokerModuleInstallAckPacket as InjectStructPropertyCommand<typeof BrokerModuleInstallAckPacket, typeof BROKER_COMMAND_MODULE_INSTALL_ACK>,
 	[BROKER_COMMAND_MODULE_UNINSTALL]: BrokerModuleUninstallPacket as InjectStructPropertyCommand<typeof BrokerModuleUninstallPacket, typeof BROKER_COMMAND_MODULE_UNINSTALL>,
 	[BROKER_COMMAND_MODULE_UNINSTALL_ACK]: BrokerModuleUninstallAckPacket as InjectStructPropertyCommand<typeof BrokerModuleUninstallAckPacket, typeof BROKER_COMMAND_MODULE_UNINSTALL_ACK>,
+	[BROKER_COMMAND_MODULE_OPTION_GET]: BrokerModuleOptionGetPacket as InjectStructPropertyCommand<typeof BrokerModuleOptionGetPacket, typeof BROKER_COMMAND_MODULE_OPTION_GET>,
+	[BROKER_COMMAND_MODULE_OPTION_GET_ACK]: BrokerModuleOptionGetAckPacket as InjectStructPropertyCommand<typeof BrokerModuleOptionGetAckPacket, typeof BROKER_COMMAND_MODULE_OPTION_GET_ACK>,
+	[BROKER_COMMAND_MODULE_OPTION_SET]: BrokerModuleOptionSetPacket as InjectStructPropertyCommand<typeof BrokerModuleOptionSetPacket, typeof BROKER_COMMAND_MODULE_OPTION_SET>,
+	[BROKER_COMMAND_MODULE_OPTION_SET_ACK]: BrokerModuleOptionSetAckPacket as InjectStructPropertyCommand<typeof BrokerModuleOptionSetAckPacket, typeof BROKER_COMMAND_MODULE_OPTION_SET_ACK>,
+	[BROKER_COMMAND_MODULE_OPTION_DELETE]: BrokerModuleOptionDeletePacket as InjectStructPropertyCommand<typeof BrokerModuleOptionDeletePacket, typeof BROKER_COMMAND_MODULE_OPTION_DELETE>,
+	[BROKER_COMMAND_MODULE_OPTION_DELETE_ACK]: BrokerModuleOptionDeleteAckPacket as InjectStructPropertyCommand<typeof BrokerModuleOptionDeleteAckPacket, typeof BROKER_COMMAND_MODULE_OPTION_DELETE_ACK>,
+	[BROKER_COMMAND_MODULE_OPTION_LIST]: BrokerModuleOptionListPacket as InjectStructPropertyCommand<typeof BrokerModuleOptionListPacket, typeof BROKER_COMMAND_MODULE_OPTION_LIST>,
+	[BROKER_COMMAND_MODULE_OPTION_LIST_ACK]: BrokerModuleOptionListAckPacket as InjectStructPropertyCommand<typeof BrokerModuleOptionListAckPacket, typeof BROKER_COMMAND_MODULE_OPTION_LIST_ACK>,
 	[BROKER_COMMAND_NODE_JOIN]: BrokerNodeJoinPacket as InjectStructPropertyCommand<typeof BrokerNodeJoinPacket, typeof BROKER_COMMAND_NODE_JOIN>,
 	[BROKER_COMMAND_NODE_LEAVE]: BrokerNodeLeavePacket as InjectStructPropertyCommand<typeof BrokerNodeLeavePacket, typeof BROKER_COMMAND_NODE_LEAVE>,
 	[BROKER_COMMAND_NODE_RELAY]: BrokerNodeRelayPacket as InjectStructPropertyCommand<typeof BrokerNodeRelayPacket, typeof BROKER_COMMAND_NODE_RELAY>
@@ -99,10 +170,19 @@ const BrokerPacketNames = {
 	[BROKER_COMMAND_MODULE_INSTALL_ACK]: "BROKER_COMMAND_MODULE_INSTALL_ACK",
 	[BROKER_COMMAND_MODULE_UNINSTALL]: "BROKER_COMMAND_MODULE_UNINSTALL",
 	[BROKER_COMMAND_MODULE_UNINSTALL_ACK]: "BROKER_COMMAND_MODULE_UNINSTALL_ACK",
+	[BROKER_COMMAND_MODULE_OPTION_GET]: "BROKER_COMMAND_MODULE_OPTION_GET",
+	[BROKER_COMMAND_MODULE_OPTION_GET_ACK]: "BROKER_COMMAND_MODULE_OPTION_GET_ACK",
+	[BROKER_COMMAND_MODULE_OPTION_SET]: "BROKER_COMMAND_MODULE_OPTION_SET",
+	[BROKER_COMMAND_MODULE_OPTION_SET_ACK]: "BROKER_COMMAND_MODULE_OPTION_SET_ACK",
+	[BROKER_COMMAND_MODULE_OPTION_DELETE]: "BROKER_COMMAND_MODULE_OPTION_DELETE",
+	[BROKER_COMMAND_MODULE_OPTION_DELETE_ACK]: "BROKER_COMMAND_MODULE_OPTION_DELETE_ACK",
+	[BROKER_COMMAND_MODULE_OPTION_LIST]: "BROKER_COMMAND_MODULE_OPTION_KEYS",
+	[BROKER_COMMAND_MODULE_OPTION_LIST_ACK]: "BROKER_COMMAND_MODULE_OPTION_KEYS_ACK",
 	[BROKER_COMMAND_NODE_JOIN]: "BROKER_COMMAND_NODE_JOIN",
 	[BROKER_COMMAND_NODE_LEAVE]: "BROKER_COMMAND_NODE_LEAVE",
 	[BROKER_COMMAND_NODE_RELAY]: "BROKER_COMMAND_NODE_RELAY"
 };
+type BrokerPacketStructs = ReturnType<(typeof BrokerPackets)[keyof typeof BrokerPackets]["read"]>;
 const getBrokerTempBuffer = newTempBuffer();
 function decodeBrokerPacket(buffer: Buffer) {
 	const reader = newBufferReader(buffer);
@@ -114,7 +194,7 @@ function decodeBrokerPacket(buffer: Buffer) {
 	struct.command = command;
 	return struct;
 }
-function encodeBrokerPacket(object: ReturnType<typeof decodeBrokerPacket>) {
+function encodeBrokerPacket(object: BrokerPacketStructs) {
 	const command = object.command;
 	const structType = BrokerPackets[command] as any;
 	if (structType == null)
@@ -166,46 +246,240 @@ function newDecouplerMachine(size: number, window: number, center: number | null
 	};
 }
 
-const brokerContexts = [];
-const brokerServer = net.createServer(socket => {
-	const context = {} as any;
+type BrokerContext = ReturnType<typeof newBrokerContext>;
+const brokerContexts = [] as BrokerContext[];
+function newBrokerContext(socket: net.Socket) {
+	const context = {} as {
+		socket: typeof socket;
+		socketAddress: typeof socketAddress;
+		name: typeof name;
+		assertIdentity: typeof assertIdentity;
+		getTempBuffer: typeof getTempBuffer;
+		readBytes: typeof readBytes;
+		writeBytes: typeof writeBytes;
+		readPayload: typeof readPayload;
+		writePayload: typeof writePayload;
+		userCounter: typeof userCounter;
+		waitMessages: typeof waitMessages;
+		requestResponsePacket: typeof requestResponsePacket;
+		identity: typeof identity;
+		nodeHandles: typeof nodeHandles;
+		syncBrokerModules: typeof syncBrokerModules;
+		doSyncBrokerModules: typeof doSyncBrokerModules;
+		installBrokerModule: typeof installBrokerModule;
+		uninstallBrokerModule: typeof uninstallBrokerModule;
+		syncBrokerModuleOptions: typeof syncBrokerModuleOptions;
+		getBrokerModuleOptions: typeof getBrokerModuleOptions;
+		setBrokerModuleOptions: typeof setBrokerModuleOptions;
+		deleteBrokerModuleOptions: typeof deleteBrokerModuleOptions;
+		listBrokerModuleOptions: typeof listBrokerModuleOptions;
+	};
 	context.socket = socket;
-	brokerContexts.push(context);
-	socket.addListener("close", () => {
-		if (identity != null) {
-			for (const nodeHandle of nodeHandles)
-				emitNodeLeave(nodeHandle, identity.brokerId);
-			emitBrokerLeave(identity.brokerId);
-		}
-		const index = brokerContexts.indexOf(context);
-		if (index == -1) return;
-		brokerContexts.splice(index, 1);
-	});
+	const socketAddress = socket.address() as net.AddressInfo;
+	const name = () => identity != null ? `${identity.brokerId}` : `${socketAddress.address}:${socketAddress.port}`;
+	context.socketAddress = socketAddress;
+	context.name = name;
 
-	const socketAddress = context.socketAddress = socket.address() as net.AddressInfo;
-	const name = context.name = () => identity != null ? `${identity.brokerId}` : `${socketAddress.address}:${socketAddress.port}`;
-	const getTempBuffer = context.getTempBuffer = newTempBuffer();
-	const readBytes = context.readBytes = socketReader(socket);
-	const writeBytes = context.writeBytes = socketWriter(socket);
-	const readPayload = context.readPayload = async () => {
+	const getTempBuffer = newTempBuffer();
+	const readBytes = socketReader(socket);
+	const writeBytes = socketWriter(socket);
+	const readPayload = async () => {
 		const length = (await readBytes(4)).readUInt32BE();
 		const buffer = (await readBytes(length)).subarray(0, length);
 		return decodeBrokerPacket(buffer);
-	}
-	const writePayload = context.writePayload = async (payload: ReturnType<typeof decodeBrokerPacket>) => {
+	};
+	const writePayload = async (payload: BrokerPacketStructs) => {
 		const buffer = encodeBrokerPacket(payload);
 		const tempBuffer = getTempBuffer(buffer.length + 4);
 		tempBuffer.writeUInt32BE(buffer.length);
 		buffer.copy(tempBuffer, 4, 0, buffer.length);
 		await writeBytes(tempBuffer, 0, buffer.length + 4);
-	}
+	};
+	context.getTempBuffer = getTempBuffer;
+	context.readBytes = readBytes;
+	context.writeBytes = writeBytes;
+	context.readPayload = readPayload;
+	context.writePayload = writePayload;
+
+	type PacketsWithUserId = Extract<BrokerPacketStructs, { user: number }>;
+	let userCounter = 0;
+	const waitMessages = new Map<number, [number, (r: PacketsWithUserId) => void, (e: any) => void]>();
+	const requestResponsePacket = async <ACK extends PacketsWithUserId["command"]>(payload: DistributiveOmit<PacketsWithUserId, "user"> & { user?: number }, ackCommand: ACK, timeout: number = 10 * 1000) => {
+		type AckPacket = Extract<PacketsWithUserId, { command: ACK }>;
+		let user = payload.user;
+		if (user == null) {
+			if (userCounter >= 2 ** 16)
+				userCounter = context.userCounter = 0;
+			user = payload.user = userCounter = context.userCounter++;
+		}
+		let resolve: (r: AckPacket) => void;
+		let reject: (e: any) => void;
+		const promise = new Promise<AckPacket>((res, rej) => { resolve = res; reject = rej; });
+		const timeoutHandle = timeout != null ? setTimeout(() => reject(new Error(`Waiting response packet timed out`)), timeout) : null;
+		waitMessages.set(user, [ackCommand, resolve, reject]);
+		await writePayload(payload as any);
+		try {
+			return await promise;
+		} finally {
+			if (timeoutHandle != null)
+				clearTimeout(timeoutHandle);
+			waitMessages.delete(user);
+		}
+	};
+	context.userCounter = userCounter;
+	context.waitMessages = waitMessages;
+	context.requestResponsePacket = requestResponsePacket;
 
 	debug(`Connected to broker ${name()}`);
 	socket.addListener("close", () => {
 		debug(`Disconnected from broker ${name()}`);
 	});
-	let identity = context.identity = null;
-	const nodeHandles = context.nodeHandles = new Set<number>();
+	let identity = null as { brokerId: number };
+	const nodeHandles = new Set<number>();
+	const assertIdentity = () => { if (identity != null) return; throw new Error("Broker is not identified yet"); }
+	context.identity = identity;
+	context.nodeHandles = nodeHandles;
+	context.assertIdentity = assertIdentity;
+
+	const syncBrokerModules = async () => {
+		assertIdentity();
+		if (brokerModuleNegotiator == null)
+			throw new Error("Broker module negotiator is not available");
+		const localModuleInfos = await brokerModuleNegotiator.forBroker(identity.brokerId);
+		const remoteModuleInfos = (await requestResponsePacket({
+			command: BROKER_COMMAND_MODULE_SYNC,
+			modules: localModuleInfos
+		}, BROKER_COMMAND_MODULE_SYNC_ACK)).modules;
+		await doSyncBrokerModules(localModuleInfos, remoteModuleInfos);
+	};
+	const doSyncBrokerModules = async (localModuleInfos: ModuleInfo[], remoteModuleInfos: ModuleInfo[]) => {
+		assertIdentity();
+		if (brokerModuleNegotiator == null)
+			throw new Error("Broker module negotiator is not available");
+		debug(`Syncing modules at broker ${name()}`);
+		const comparations = await brokerModuleNegotiator.compare(localModuleInfos, remoteModuleInfos);
+		const promises = [];
+		for (const comparation of comparations) {
+			if (comparation.action == "install" || comparation.action == "replace")
+				promises.push(installBrokerModule(comparation));
+			if (comparation.action == "uninstall")
+				promises.push(uninstallBrokerModule(comparation.name));
+		}
+		await Promise.all(promises);
+	};
+	const installBrokerModule = async (moduleInfo: ModuleInfo) => {
+		assertIdentity();
+		if (brokerModuleNegotiator == null)
+			throw new Error("Broker module negotiator is not available");
+		debug(`Installing module ${moduleInfo.name}@${moduleInfo.version} to broker ${name()}`);
+		const moduleDetail = await brokerModuleNegotiator.detail(moduleInfo);
+		await syncBrokerModuleOptions(moduleInfo.name);
+		const response = await requestResponsePacket({
+			command: BROKER_COMMAND_MODULE_INSTALL,
+			name: moduleInfo.name,
+			version: moduleInfo.version,
+			nodeBrokerPacketDefinitions: moduleDetail.nodeBrokerPacketDefinitions,
+			brokerServerPacketDefinitions: moduleDetail.brokerServerPacketDefinitions,
+			sourceCode: moduleDetail.sourceCode
+		}, BROKER_COMMAND_MODULE_INSTALL_ACK);
+		if (response.status == CODE_OK)
+			return;
+		if (response.status == CODE_ERROR)
+			throw new Error(`Error while installing module: ${response.message}`);
+		throw new Error(`Unknown code while installing module: ${response.status}`);
+	};
+	const uninstallBrokerModule = async (moduleName: string) => {
+		assertIdentity();
+		if (brokerModuleNegotiator == null)
+			throw new Error("Broker module negotiator is not available");
+		debug(`Uninstalling module ${moduleName} from broker ${name()}`);
+		const response = await requestResponsePacket({
+			command: BROKER_COMMAND_MODULE_UNINSTALL,
+			name: moduleName
+		}, BROKER_COMMAND_MODULE_UNINSTALL_ACK);
+		if (response.status == CODE_OK)
+			return;
+		if (response.status == CODE_ERROR)
+			throw new Error(`Error while uninstalling module: ${response.message}`);
+		throw new Error(`Unknown code while uninstalling module: ${response.status}`);
+	};
+	const syncBrokerModuleOptions = async (moduleName: string) => {
+		assertIdentity();
+		if (brokerModuleNegotiator == null)
+			throw new Error("Broker module negotiator is not available");
+		const localOptionIds = await brokerModuleNegotiator.listOptions(identity.brokerId, moduleName);
+		const localOptions = await brokerModuleNegotiator.getOptions(identity.brokerId, moduleName, localOptionIds);
+		const remoteOptionIds = await listBrokerModuleOptions(moduleName);
+		const deletedKeys = remoteOptionIds.filter(k => !localOptionIds.includes(k));
+		if (deletedKeys.length > 0)
+			await deleteBrokerModuleOptions(moduleName, deletedKeys);
+		await setBrokerModuleOptions(moduleName, localOptionIds, localOptions);
+	};
+	const getBrokerModuleOptions = async (moduleName: string, ids: string[]) => {
+		assertIdentity();
+		debug(`Getting module ${moduleName} options ${ids.join()} from broker ${name()}`);
+		const response = await requestResponsePacket({
+			command: BROKER_COMMAND_MODULE_OPTION_GET,
+			name: moduleName,
+			ids: ids
+		}, BROKER_COMMAND_MODULE_OPTION_GET_ACK);
+		if (response.status == CODE_OK)
+			return response.values;
+		if (response.status == CODE_ERROR)
+			throw new Error(`Error while getting module options: ${response.message}`);
+		throw new Error(`Unknown code while getting module options: ${response.status}`);
+	};
+	const setBrokerModuleOptions = async (moduleName: string, ids: string[], values: any[]) => {
+		assertIdentity();
+		debug(`Setting module ${moduleName} options ${ids.join()} to broker ${name()}`);
+		const response = await requestResponsePacket({
+			command: BROKER_COMMAND_MODULE_OPTION_SET,
+			name: moduleName,
+			ids: ids,
+			values: values,
+		}, BROKER_COMMAND_MODULE_OPTION_SET_ACK);
+		if (response.status == CODE_OK)
+			return;
+		if (response.status == CODE_ERROR)
+			throw new Error(`Error while getting module options: ${response.message}`);
+		throw new Error(`Unknown code while getting module options: ${response.status}`);
+	};
+	const deleteBrokerModuleOptions = async (moduleName: string, ids: string[]) => {
+		assertIdentity();
+		debug(`Deleting module ${moduleName} options ${ids.join()} from broker ${name()}`);
+		const response = await requestResponsePacket({
+			command: BROKER_COMMAND_MODULE_OPTION_DELETE,
+			name: moduleName,
+			ids: ids
+		}, BROKER_COMMAND_MODULE_OPTION_DELETE_ACK);
+		if (response.status == CODE_OK)
+			return;
+		if (response.status == CODE_ERROR)
+			throw new Error(`Error while deleting module options: ${response.message}`);
+		throw new Error(`Unknown code while deleting module options: ${response.status}`);
+	};
+	const listBrokerModuleOptions = async (moduleName: string) => {
+		assertIdentity();
+		debug(`Keying module ${moduleName} from broker ${name()}`);
+		const response = await requestResponsePacket({
+			command: BROKER_COMMAND_MODULE_OPTION_LIST,
+			name: moduleName
+		}, BROKER_COMMAND_MODULE_OPTION_LIST_ACK);
+		if (response.status == CODE_OK)
+			return response.ids;
+		if (response.status == CODE_ERROR)
+			throw new Error(`Error while listing module options: ${response.message}`);
+		throw new Error(`Unknown code while listing module options: ${response.status}`);
+	};
+	context.syncBrokerModules = syncBrokerModules;
+	context.doSyncBrokerModules = doSyncBrokerModules;
+	context.installBrokerModule = installBrokerModule;
+	context.uninstallBrokerModule = uninstallBrokerModule;
+	context.syncBrokerModuleOptions = syncBrokerModuleOptions;
+	context.getBrokerModuleOptions = getBrokerModuleOptions;
+	context.setBrokerModuleOptions = setBrokerModuleOptions;
+	context.deleteBrokerModuleOptions = deleteBrokerModuleOptions;
+	context.listBrokerModuleOptions = listBrokerModuleOptions;
 
 	(async () => {
 		while (!socket.closed) {
@@ -216,14 +490,22 @@ const brokerServer = net.createServer(socket => {
 					if (e == ERR_PACKET_UNKNOWN_COMMAND) {
 						// We can advance through unknown command without any structure information,
 						// because we have length information beforehand.
-						debug(`Received unknown command from ${name()}`);
+						debug(`Received unknown command from broker ${name()}`);
 						return null;
 					}
 				}
 			})();
 			if (payload == null)
 				continue;
-			debug(`Received ${BrokerPacketNames[payload.command]} packet from ${name()}`);
+			debug(`Received ${BrokerPacketNames[payload.command]} packet from broker ${name()}`);
+			if ((payload as any).user != null) {
+				const user = (payload as any).user;
+				const info = waitMessages.get(user);
+				if (info != null && info[0] == payload.command) {
+					info[1](payload as any);
+					return;
+				}
+			}
 			if (payload.command == BROKER_COMMAND_IDENTIFY) {
 				if (identity != null) {
 					debug(`Broker ${name()} sent multiple identify command`);
@@ -233,15 +515,188 @@ const brokerServer = net.createServer(socket => {
 				identity = context.identity = {
 					brokerId: payload.brokerId
 				};
-				emitBrokerJoin(identity.brokerId);
+				brokerEmitter.emit("join", payload.brokerId);
 				writePayload({ command: BROKER_COMMAND_IDENTIFY_ACK });
+				if (brokerModuleNegotiator != null)
+					syncBrokerModules();
 				return;
 			}
 			if (payload.command == BROKER_COMMAND_PING) {
-				writePayload({ command: BROKER_COMMAND_PONG });
+				writePayload({
+					command: BROKER_COMMAND_PONG,
+					user: payload.user
+				});
 				return;
 			}
-			if (identity == null) return;
+			if (identity == null) {
+				const serverModuleId = packetModules.get(payload.command);
+				if (serverModuleId != null) {
+					const serverModule = serverModules.get(serverModuleId);
+					serverModule.onReceive(payload);
+					return;
+				}
+				return;
+			}
+			if (payload.command == BROKER_COMMAND_MODULE_SYNC) {
+				if (brokerModuleNegotiator == null) {
+					writePayload({
+						command: BROKER_COMMAND_MODULE_SYNC_ACK,
+						user: payload.user,
+						status: CODE_ERROR,
+						message: "Server is not ready yet",
+						modules: []
+					});
+					return;
+				}
+				brokerModuleNegotiator.forBroker(identity.brokerId).then( // no await
+					m => {
+						writePayload({
+							command: BROKER_COMMAND_MODULE_SYNC_ACK,
+							user: payload.user,
+							status: CODE_OK,
+							message: "",
+							modules: m
+						});
+						doSyncBrokerModules(m, payload.modules);
+					},
+					e => {
+						writePayload({
+							command: BROKER_COMMAND_MODULE_SYNC_ACK,
+							user: payload.user,
+							status: CODE_ERROR,
+							message: e.stack,
+							modules: []
+						});
+					}
+				);
+				return;
+			}
+			if (payload.command == BROKER_COMMAND_MODULE_OPTION_GET) {
+				if (brokerModuleNegotiator == null) {
+					writePayload({
+						command: BROKER_COMMAND_MODULE_OPTION_GET_ACK,
+						user: payload.user,
+						status: CODE_ERROR,
+						message: "Server is not ready yet",
+						values: []
+					});
+					return;
+				}
+				brokerModuleNegotiator.getOptions(identity.brokerId, payload.name, payload.ids).then( // no await
+					m => {
+						writePayload({
+							command: BROKER_COMMAND_MODULE_OPTION_GET_ACK,
+							user: payload.user,
+							status: CODE_OK,
+							message: "",
+							values: m
+						});
+					},
+					e => {
+						writePayload({
+							command: BROKER_COMMAND_MODULE_OPTION_GET_ACK,
+							user: payload.user,
+							status: CODE_ERROR,
+							message: e.stack,
+							values: []
+						});
+					}
+				)
+				return;
+			}
+			if (payload.command == BROKER_COMMAND_MODULE_OPTION_SET) {
+				if (brokerModuleNegotiator == null) {
+					writePayload({
+						command: BROKER_COMMAND_MODULE_OPTION_SET_ACK,
+						user: payload.user,
+						status: CODE_ERROR,
+						message: "Server is not ready yet"
+					});
+					return;
+				}
+				brokerModuleNegotiator.setOptions(identity.brokerId, payload.name, payload.ids, payload.values).then( // no await
+					() => {
+						writePayload({
+							command: BROKER_COMMAND_MODULE_OPTION_SET_ACK,
+							user: payload.user,
+							status: CODE_OK,
+							message: ""
+						});
+					},
+					e => {
+						writePayload({
+							command: BROKER_COMMAND_MODULE_OPTION_SET_ACK,
+							user: payload.user,
+							status: CODE_ERROR,
+							message: e.stack
+						});
+					}
+				)
+				return;
+			}
+			if (payload.command == BROKER_COMMAND_MODULE_OPTION_DELETE) {
+				if (brokerModuleNegotiator == null) {
+					writePayload({
+						command: BROKER_COMMAND_MODULE_OPTION_DELETE_ACK,
+						user: payload.user,
+						status: CODE_ERROR,
+						message: "Server is not ready yet"
+					});
+					return;
+				}
+				brokerModuleNegotiator.deleteOptions(identity.brokerId, payload.name, payload.ids).then( // no await
+					() => {
+						writePayload({
+							command: BROKER_COMMAND_MODULE_OPTION_DELETE_ACK,
+							user: payload.user,
+							status: CODE_OK,
+							message: ""
+						});
+					},
+					e => {
+						writePayload({
+							command: BROKER_COMMAND_MODULE_OPTION_DELETE_ACK,
+							user: payload.user,
+							status: CODE_ERROR,
+							message: e.stack
+						});
+					}
+				)
+				return;
+			}
+			if (payload.command == BROKER_COMMAND_MODULE_OPTION_LIST) {
+				if (brokerModuleNegotiator == null) {
+					writePayload({
+						command: BROKER_COMMAND_MODULE_OPTION_LIST_ACK,
+						user: payload.user,
+						status: CODE_ERROR,
+						message: "Server is not ready yet",
+						ids: []
+					});
+					return;
+				}
+				brokerModuleNegotiator.listOptions(identity.brokerId, payload.name).then( // no await
+					k => {
+						writePayload({
+							command: BROKER_COMMAND_MODULE_OPTION_LIST_ACK,
+							user: payload.user,
+							status: CODE_OK,
+							message: "",
+							ids: k
+						});
+					},
+					e => {
+						writePayload({
+							command: BROKER_COMMAND_MODULE_OPTION_LIST_ACK,
+							user: payload.user,
+							status: CODE_ERROR,
+							message: e.stack,
+							ids: []
+						});
+					}
+				)
+				return;
+			}
 			if (payload.command == BROKER_COMMAND_NODE_JOIN) {
 				const nodeId = payload.nodeId;
 				if (nodeHandles.has(nodeId)) return;
@@ -267,29 +722,38 @@ const brokerServer = net.createServer(socket => {
 				return;
 			}
 			const serverModuleId = packetModules.get(payload.command);
-			const serverModule = serverModules.get(serverModuleId);
-			serverModule.onReceive(payload);
+			if (serverModuleId != null) {
+				const serverModule = serverModules.get(serverModuleId);
+				serverModule.onReceive(payload);
+				return;
+			}
 		}
 	})().catch(e => {
 		if (e.message == "Socket closed")
 			return;
 		throw e;
 	});
+	return context;
+}
+const brokerServer = net.createServer(socket => {
+	const context = newBrokerContext(socket);
+	brokerContexts.push(context);
+	socket.addListener("close", () => {
+		const identity = context.identity;
+		if (identity != null) {
+			for (const nodeHandle of context.nodeHandles)
+				emitNodeLeave(nodeHandle, identity.brokerId);
+			brokerEmitter.emit("leave", identity.brokerId);
+		}
+		const index = brokerContexts.indexOf(context);
+		if (index == -1) return;
+		brokerContexts.splice(index, 1);
+	});
 });
 brokerServer.listen(() => {
 	const address = brokerServer.address() as net.AddressInfo;
 	debug(`Broker server started at ${address.address}:${address.port}`);
 });
-function emitBrokerJoin(brokerId: number) {
-	brokerEmitter.emit("join", brokerId);
-}
-function emitBrokerLeave(brokerId: number) {
-	brokerEmitter.emit("leave", brokerId);
-}
-export const brokerEmitter = new EventEmitter() as TypedEmitter<{
-	join: (brokerId: number) => void;
-	leave: (brokerId: number) => void;
-}>;
 export async function getBrokerServerAddress() {
 	if (brokerServer.listening)
 		return brokerServer.address() as net.AddressInfo;
@@ -310,6 +774,47 @@ export async function getBrokerServerAddress() {
 		brokerServer.on("error", onError)
 	});
 }
+export const brokerEmitter = new EventEmitter() as TypedEmitter<{
+	join: (brokerId: number) => void;
+	leave: (brokerId: number) => void;
+	nodejoin: (nodeId: number, brokerId: number) => void;
+	nodeleave: (nodeId: number, brokerId: number) => void;
+	nodereceive: (nodeId: number, packet: NodeReceivePacketTypes) => void;
+}>;
+let brokerModuleNegotiator: {
+	forBroker: (brokerId: number) => Promise<ModuleInfo[]>;
+	compare: (localModuleInfos: ModuleInfo[], remoteModuleInfos: ModuleInfo[]) => Promise<({ action: "install" | "replace" } & ModuleInfo | { action: "uninstall", name: string })[]>;
+	detail: (moduleInfo: ModuleInfo) => Promise<{ sourceCode: string, nodeBrokerPacketDefinitions: NodeBrokerPacketDefintion[], brokerServerPacketDefinitions: BrokerServerPacketDefintion[] }>;
+	getOptions: (brokerId: number, name: string, ids: string[]) => Promise<any[]>;
+	setOptions: (brokerId: number, name: string, ids: string[], values: any[]) => Promise<void>;
+	deleteOptions: (brokerId: number, name: string, ids: string[]) => Promise<void>;
+	listOptions: (brokerId: number, name: string) => Promise<string[]>;
+}
+export async function setBrokerModuleNegotiator(negotiator: typeof brokerModuleNegotiator) {
+	brokerModuleNegotiator = negotiator;
+	const promises = [];
+	for (const brokerContext of brokerContexts) {
+		if (brokerContext.identity == null) continue;
+		promises.push(brokerContext.syncBrokerModules());
+	}
+	await Promise.all(promises);
+}
+const __doBrokerOrOffline = <A extends Array<any>, R extends Promise<any>>(cb: (brokerContext: BrokerContext, ...args: A) => R) => {
+	return async (brokerId: number, ...args: A) => {
+		const brokerContext = brokerContexts.find(b => b.identity?.brokerId == brokerId);
+		if (brokerContext == null) return false; // broker offline
+		await cb(brokerContext, ...args);
+		return true;
+	}
+};
+export const syncBrokerModules = __doBrokerOrOffline(c => c.syncBrokerModules());
+export const installBrokerModule = __doBrokerOrOffline((c, moduleInfo: ModuleInfo) => c.installBrokerModule(moduleInfo));
+export const uninstallBrokerModule = __doBrokerOrOffline((c, name: string) => c.uninstallBrokerModule(name));
+export const syncBrokerModuleOptions = __doBrokerOrOffline((c, name: string) => c.syncBrokerModuleOptions(name));
+export const getBrokerModuleOptions = __doBrokerOrOffline((c, name: string, ids: string[]) => c.getBrokerModuleOptions(name, ids));
+export const setBrokerModuleOptions = __doBrokerOrOffline((c, name: string, ids: string[], values: any[]) => c.setBrokerModuleOptions(name, ids, values));
+export const deleteBrokerModuleOptions = __doBrokerOrOffline((c, name: string, ids: string[]) => c.deleteBrokerModuleOptions(name, ids));
+export const listBrokerModuleOptions = __doBrokerOrOffline((c, name: string) => c.listBrokerModuleOptions(name));
 
 interface NodeState {
 	id: number;
@@ -317,6 +822,9 @@ interface NodeState {
 	decouple: ReturnType<typeof newDecouplerMachine>;
 	sendPacketId: number;
 }
+type NodePacketTypes<T extends keyof typeof BrokerPackets> = ReturnType<(typeof BrokerPackets)[T]["read"]>;
+export type NodeReceivePacketTypes = NodePacketTypes<typeof BROKER_COMMAND_NODE_RELAY>;
+export type NodeSendPacketTypes = NodePacketTypes<typeof BROKER_COMMAND_NODE_RELAY>;
 const nodeStates = new Map<number, NodeState>();
 function emitNodeJoin(nodeId: number, brokerId: number) {
 	let nodeState = nodeStates.get(nodeId);
@@ -331,14 +839,14 @@ function emitNodeJoin(nodeId: number, brokerId: number) {
 	}
 	if (!nodeState.brokers.has(brokerId)) {
 		nodeState.brokers.add(brokerId);
-		nodeEmitter.emit("join", nodeId, brokerId);
+		brokerEmitter.emit("nodejoin", nodeId, brokerId);
 	}
 }
 function emitNodeLeave(nodeId: number, brokerId: number) {
 	const nodeState = nodeStates.get(nodeId);
 	if (nodeState == null) return;
 	if (nodeState.brokers.has(brokerId)) {
-		nodeEmitter.emit("leave", nodeId, brokerId);
+		brokerEmitter.emit("nodeleave", nodeId, brokerId);
 		nodeState.brokers.delete(brokerId);
 	}
 	if (nodeState.brokers.size == 0)
@@ -348,18 +856,9 @@ function emitNodeReceivePacket(payload: NodeReceivePacketTypes) {
 	const nodeState = nodeStates.get(payload.nodeId);
 	if (payload.packetId != null && !nodeState.decouple(payload.packetId))
 		return;
-	nodeEmitter.emit("receive", payload.nodeId, payload);
+	brokerEmitter.emit("nodereceive", payload.nodeId, payload);
 }
-
-type NodePacketTypes<T extends keyof typeof BrokerPackets> = ReturnType<(typeof BrokerPackets)[T]["read"]>;
-type NodeReceivePacketTypes = NodePacketTypes<typeof BROKER_COMMAND_NODE_RELAY>;
-type NodeSendPacketTypes = NodePacketTypes<typeof BROKER_COMMAND_NODE_RELAY>;
-export const nodeEmitter = new EventEmitter() as TypedEmitter<{
-	join: (nodeId: number, brokerId: number) => void;
-	leave: (nodeId: number, brokerId: number) => void;
-	receive: (nodeId: number, packet: NodeReceivePacketTypes) => void;
-}>;
-export async function sendNodePacket(packet: Omit<NodeSendPacketTypes, "packetId"> & { packetId?: number }) {
+export async function sendNodePacket<T extends NodeSendPacketTypes>(packet: Omit<T, "packetId"> & { packetId?: number }) {
 	const promises = [];
 	const nodeState = nodeStates.get(packet.nodeId);
 	if (packet.packetId == null) {
@@ -370,7 +869,7 @@ export async function sendNodePacket(packet: Omit<NodeSendPacketTypes, "packetId
 	for (const brokerContext of brokerContexts) {
 		if (!brokerContext.nodeHandles.has(packet.nodeId)) continue;
 		debug(`Sending ${BrokerPacketNames[packet.command]} packet to ${brokerContext.identity.brokerId}`);
-		promises.push(brokerContext.writePayload(packet));
+		promises.push(brokerContext.writePayload(packet as T));
 	}
 	await Promise.all(promises);
 }
@@ -417,7 +916,3 @@ export async function uninstallServerBrokerModule(name: string) {
 	}
 	serverModules.delete(name);
 }
-
-// installBrokerModule, syncBrokerModule, requestResponsePacket
-// onBrokerConnect => automatically sync
-// needs module access to database

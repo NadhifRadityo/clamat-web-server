@@ -157,12 +157,12 @@ export type CLamatModuleModifiers =
 export interface CLamatBrokerModifier extends Modifier { }
 export interface CLamatBrokerModuleModifier extends CLamatBrokerModifier {
 	name: "Module";
-	value: string;
+	value: string; // refer to module id
 }
 export interface CLamatBrokerModuleOptionModifier extends CLamatBrokerModifier {
 	name: "ModuleOption",
 	value: {
-		module: string;
+		module: string; // refer to module name
 		id: string;
 		value: any;
 	}
@@ -172,12 +172,12 @@ export type CLamatBrokerModifiers = CLamatBrokerModuleModifier | CLamatBrokerMod
 export interface CLamatNodeModifier extends Modifier { }
 export interface CLamatNodeModuleModifier extends CLamatNodeModifier {
 	name: "Module";
-	value: string;
+	value: string; // refer to module id
 }
 export interface CLamatNodeModuleOptionModifier extends CLamatNodeModifier {
 	name: "ModuleOption",
 	value: {
-		module: string;
+		module: string; // refer to module name
 		id: string;
 		value: any;
 	}

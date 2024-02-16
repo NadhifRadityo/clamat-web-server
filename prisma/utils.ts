@@ -1,4 +1,11 @@
-import { MinerModifiers, UserModifiers } from "./types";
+import {
+	CLamatMinerModifiers,
+	CLamatModuleModifiers,
+	CLamatBrokerModifiers,
+	CLamatNodeModifiers,
+	CLamatSessionModifiers,
+	UserModifiers
+} from "./types";
 
 /* Start microdiff definition. They did not export these */
 interface DifferenceCreate {
@@ -241,4 +248,8 @@ export function modifierEditor<TYPES extends { name: string }>() {
 }
 export const genericEditor = modifierEditor<any>();
 export const userModifierEditor = modifierEditor<UserModifiers>();
-export const minerModifierEditor = modifierEditor<MinerModifiers>();
+export const clamatMinerModifierEditor = modifierEditor<CLamatMinerModifiers>();
+export const clamatModuleModifierEditor = modifierEditor<CLamatModuleModifiers>();
+export const clamatBrokerModifierEditor = modifierEditor<CLamatBrokerModifiers>();
+export const clamatNodeModifierEditor = modifierEditor<CLamatNodeModifiers>();
+export const clamatSessionModifierEditor = modifierEditor<CLamatSessionModifiers>();
