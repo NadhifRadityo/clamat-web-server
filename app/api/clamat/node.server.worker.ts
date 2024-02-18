@@ -1,11 +1,12 @@
 import { EventEmitter } from "stream";
-import TypedEmitter from "typed-emitter"
+import TypedEmitter from "typed-emitter";
 import debug0 from "debug";
 import Comlink from "comlink";
 import {
 	CODE_OK,
 	CODE_ERROR,
 	ERR_PACKET_UNKNOWN_COMMAND,
+	ERR_OFFLINE,
 	BROKER_COMMAND_NODE_RELAY,
 	NODE_COMMAND_PING,
 	NODE_COMMAND_PONG,
@@ -21,8 +22,8 @@ import {
 	NODE_COMMAND_MODULE_OPTION_DELETE_ACK,
 	NODE_COMMAND_MODULE_OPTION_LIST,
 	NODE_COMMAND_MODULE_OPTION_LIST_ACK,
-	newStructType, InjectStructPropertyCommand, newTempBuffer, newBufferReader, newBufferWriter, NodeServerPacketDefintion, ModuleInfo,
-	DistributiveOmit
+	DistributiveOmit, InjectStructPropertyCommand, ModuleInfo, NodeServerPacketDefintion,
+	newStructType, newTempBuffer, newBufferReader, newBufferWriter
 } from "./logic.shared";
 import * as broker from "./broker.server.worker";
 const debug = debug0("clamat:node");
@@ -116,7 +117,7 @@ const NodePackets = {
 	[NODE_COMMAND_MODULE_OPTION_DELETE]: NodeModuleOptionDeletePacket as InjectStructPropertyCommand<typeof NodeModuleOptionDeletePacket, typeof NODE_COMMAND_MODULE_OPTION_DELETE>,
 	[NODE_COMMAND_MODULE_OPTION_DELETE_ACK]: NodeModuleOptionDeleteAckPacket as InjectStructPropertyCommand<typeof NodeModuleOptionDeleteAckPacket, typeof NODE_COMMAND_MODULE_OPTION_DELETE_ACK>,
 	[NODE_COMMAND_MODULE_OPTION_LIST]: NodeModuleOptionListPacket as InjectStructPropertyCommand<typeof NodeModuleOptionListPacket, typeof NODE_COMMAND_MODULE_OPTION_LIST>,
-	[NODE_COMMAND_MODULE_OPTION_LIST_ACK]: NodeModuleOptionListAckPacket as InjectStructPropertyCommand<typeof NodeModuleOptionListAckPacket, typeof NODE_COMMAND_MODULE_OPTION_LIST_ACK>,
+	[NODE_COMMAND_MODULE_OPTION_LIST_ACK]: NodeModuleOptionListAckPacket as InjectStructPropertyCommand<typeof NodeModuleOptionListAckPacket, typeof NODE_COMMAND_MODULE_OPTION_LIST_ACK>
 };
 const NodePacketNames = {
 	[NODE_COMMAND_PING]: "NODE_COMMAND_PING",
@@ -140,7 +141,7 @@ function decodeNodePacket(buffer: Buffer) {
 	const reader = newBufferReader(buffer);
 	const command = reader.readUByte() as keyof typeof NodePackets;
 	const structType = NodePackets[command];
-	if (structType == null)
+	if(structType == null)
 		throw ERR_PACKET_UNKNOWN_COMMAND;
 	const struct = structType.read(reader);
 	struct.command = command;
@@ -149,7 +150,7 @@ function decodeNodePacket(buffer: Buffer) {
 function encodeNodePacket(object: NodePacketStructs) {
 	const command = object.command;
 	const structType = NodePackets[command] as any;
-	if (structType == null)
+	if(structType == null)
 		throw ERR_PACKET_UNKNOWN_COMMAND;
 	const buffer = getNodeTempBuffer(1 + structType.length(object));
 	const writer = newBufferWriter(buffer);
@@ -166,17 +167,18 @@ function newNodeContext(nodeId: number) {
 		brokers: typeof brokers;
 		readBuffer: typeof readBuffer;
 		readLock: typeof readLock;
-		readPayload: typeof readPayload;
-		writePayload: typeof writePayload;
+		readPacket: typeof readPacket;
+		writePacket: typeof writePacket;
 		userCounter: typeof userCounter;
-		waitMessages: typeof waitMessages;
+		waitingMessages: typeof waitingMessages;
 		requestResponsePacket: typeof requestResponsePacket;
+		syncNodeModules: typeof syncNodeModules;
+		doSyncNodeModules: typeof doSyncNodeModules;
 		syncNodeModuleOptions: typeof syncNodeModuleOptions;
 		getNodeModuleOptions: typeof getNodeModuleOptions;
 		setNodeModuleOptions: typeof setNodeModuleOptions;
 		deleteNodeModuleOptions: typeof deleteNodeModuleOptions;
 		listNodeModuleOptions: typeof listNodeModuleOptions;
-		onNodeReceive: typeof onNodeReceive;
 	};
 	context.id = nodeId;
 	const brokers = new Set<number>();
@@ -184,56 +186,56 @@ function newNodeContext(nodeId: number) {
 
 	const readBuffer = [] as NodePacketStructs[];
 	let readLock = null as () => void;
-	const readPayload = async () => {
+	const readPacket = async () => {
 		let result: NodePacketStructs;
-		while ((result = readBuffer.shift()) == null)
+		while((result = readBuffer.shift()) == null)
 			await new Promise(r => context.readLock = readLock = () => r(null));
 		return result;
 	};
-	const writePayload = async (payload: NodePacketStructs) => {
+	const writePacket = async (packet: NodePacketStructs) => {
 		await broker.sendNodePacket({
 			command: BROKER_COMMAND_NODE_RELAY,
 			nodeId: nodeId,
 			flag: 0,
-			message: encodeNodePacket(payload)
+			message: encodeNodePacket(packet)
 		});
 	};
 	context.readBuffer = readBuffer;
 	context.readLock = readLock;
-	context.readPayload = readPayload;
-	context.writePayload = writePayload;
+	context.readPacket = readPacket;
+	context.writePacket = writePacket;
 
 	type PacketsWithUserId = Extract<NodePacketStructs, { user: number }>;
 	let userCounter = 0;
-	const waitMessages = new Map<number, [number, (r: PacketsWithUserId) => void, (e: any) => void]>();
-	const requestResponsePacket = async <ACK extends PacketsWithUserId["command"]>(payload: DistributiveOmit<PacketsWithUserId, "user"> & { user?: number }, ackCommand: ACK, timeout: number = 10 * 1000) => {
+	const waitingMessages = new Map<number, [number, (r: PacketsWithUserId) => void, (e: any) => void]>();
+	const requestResponsePacket = async <ACK extends PacketsWithUserId["command"]>(packet: DistributiveOmit<PacketsWithUserId, "user"> & { user?: number }, ackCommand: ACK, timeout: number = 10 * 1000) => {
 		type AckPacket = Extract<PacketsWithUserId, { command: ACK }>;
-		let user = payload.user;
-		if (user == null) {
-			if (userCounter >= 2 ** 16)
+		let user = packet.user;
+		if(user == null) {
+			if(userCounter >= 2 ** 16)
 				userCounter = context.userCounter = 0;
-			user = payload.user = userCounter = context.userCounter++;
+			user = packet.user = userCounter = context.userCounter++;
 		}
 		let resolve: (r: AckPacket) => void;
 		let reject: (e: any) => void;
 		const promise = new Promise<AckPacket>((res, rej) => { resolve = res; reject = rej; });
 		const timeoutHandle = timeout != null ? setTimeout(() => reject(new Error(`Waiting response packet timed out`)), timeout) : null;
-		waitMessages.set(user, [ackCommand, resolve, reject]);
-		await writePayload(payload as any);
+		waitingMessages.set(user, [ackCommand, resolve, reject]);
+		await writePacket(packet as any);
 		try {
 			return await promise;
 		} finally {
-			if (timeoutHandle != null)
+			if(timeoutHandle != null)
 				clearTimeout(timeoutHandle);
-			waitMessages.delete(user);
+			waitingMessages.delete(user);
 		}
 	};
 	context.userCounter = userCounter;
-	context.waitMessages = waitMessages;
+	context.waitingMessages = waitingMessages;
 	context.requestResponsePacket = requestResponsePacket;
 
 	const syncNodeModules = async () => {
-		if (nodeModuleNegotiator == null)
+		if(nodeModuleNegotiator == null)
 			throw new Error("Node module negotiator is not available");
 		const localModuleInfos = await nodeModuleNegotiator.forNode(nodeId);
 		const remoteModuleInfos = (await requestResponsePacket({
@@ -243,7 +245,7 @@ function newNodeContext(nodeId: number) {
 		await doSyncNodeModules(localModuleInfos, remoteModuleInfos);
 	};
 	const doSyncNodeModules = async (localModuleInfos: ModuleInfo[], remoteModuleInfos: ModuleInfo[]) => {
-		if (nodeModuleNegotiator == null)
+		if(nodeModuleNegotiator == null)
 			throw new Error("Node module negotiator is not available");
 		debug(`Syncing modules at node ${nodeId}`);
 		const comparations = await nodeModuleNegotiator.compare(localModuleInfos, remoteModuleInfos);
@@ -257,13 +259,13 @@ function newNodeContext(nodeId: number) {
 		await Promise.all(promises);
 	};
 	const syncNodeModuleOptions = async (moduleName: string) => {
-		if (nodeModuleNegotiator == null)
+		if(nodeModuleNegotiator == null)
 			throw new Error("Node module negotiator is not available");
 		const localOptionIds = await nodeModuleNegotiator.listOptions(nodeId, moduleName);
 		const localOptions = await nodeModuleNegotiator.getOptions(nodeId, moduleName, localOptionIds);
 		const remoteOptionIds = await listNodeModuleOptions(moduleName);
 		const deletedKeys = remoteOptionIds.filter(k => !localOptionIds.includes(k));
-		if (deletedKeys.length > 0)
+		if(deletedKeys.length > 0)
 			await deleteNodeModuleOptions(moduleName, deletedKeys);
 		await setNodeModuleOptions(moduleName, localOptionIds, localOptions);
 	};
@@ -274,9 +276,9 @@ function newNodeContext(nodeId: number) {
 			name: moduleName,
 			ids: ids
 		}, NODE_COMMAND_MODULE_OPTION_GET_ACK);
-		if (response.status == CODE_OK)
+		if(response.status == CODE_OK)
 			return response.values;
-		if (response.status == CODE_ERROR)
+		if(response.status == CODE_ERROR)
 			throw new Error(`Error while getting module options: ${response.message}`);
 		throw new Error(`Unknown code while getting module options: ${response.status}`);
 	};
@@ -286,11 +288,11 @@ function newNodeContext(nodeId: number) {
 			command: NODE_COMMAND_MODULE_OPTION_SET,
 			name: moduleName,
 			ids: ids,
-			values: values,
+			values: values
 		}, NODE_COMMAND_MODULE_OPTION_SET_ACK);
-		if (response.status == CODE_OK)
+		if(response.status == CODE_OK)
 			return;
-		if (response.status == CODE_ERROR)
+		if(response.status == CODE_ERROR)
 			throw new Error(`Error while getting module options: ${response.message}`);
 		throw new Error(`Unknown code while getting module options: ${response.status}`);
 	};
@@ -301,56 +303,54 @@ function newNodeContext(nodeId: number) {
 			name: moduleName,
 			ids: ids
 		}, NODE_COMMAND_MODULE_OPTION_DELETE_ACK);
-		if (response.status == CODE_OK)
+		if(response.status == CODE_OK)
 			return;
-		if (response.status == CODE_ERROR)
+		if(response.status == CODE_ERROR)
 			throw new Error(`Error while deleting module options: ${response.message}`);
 		throw new Error(`Unknown code while deleting module options: ${response.status}`);
 	};
 	const listNodeModuleOptions = async (moduleName: string) => {
-		debug(`Keying module ${moduleName} from node ${nodeId}`);
+		debug(`Listing module ${moduleName} options from node ${nodeId}`);
 		const response = await requestResponsePacket({
 			command: NODE_COMMAND_MODULE_OPTION_LIST,
 			name: moduleName
 		}, NODE_COMMAND_MODULE_OPTION_LIST_ACK);
-		if (response.status == CODE_OK)
+		if(response.status == CODE_OK)
 			return response.ids;
-		if (response.status == CODE_ERROR)
+		if(response.status == CODE_ERROR)
 			throw new Error(`Error while listing module options: ${response.message}`);
 		throw new Error(`Unknown code while listing module options: ${response.status}`);
 	};
+	context.syncNodeModules = syncNodeModules;
+	context.doSyncNodeModules = doSyncNodeModules;
 	context.syncNodeModuleOptions = syncNodeModuleOptions;
 	context.getNodeModuleOptions = getNodeModuleOptions;
 	context.setNodeModuleOptions = setNodeModuleOptions;
 	context.deleteNodeModuleOptions = deleteNodeModuleOptions;
 	context.listNodeModuleOptions = listNodeModuleOptions;
 
-	const onNodeReceive = (packet: broker.NodeReceivePacketTypes) => {
-		if (packet.command != BROKER_COMMAND_NODE_RELAY) return;
-		const payload = (() => {
-			try {
-				return decodeNodePacket(packet.message);
-			} catch (e) {
-				if (e == ERR_PACKET_UNKNOWN_COMMAND) {
-					debug(`Received unknown command from node ${nodeId}`);
-					return null;
-				}
+	const onNodePacketReceive = (packet: NodePacketStructs) => {
+		debug(`Received ${NodePacketNames[packet.command]} packet from node ${nodeId}`);
+		if((packet as any).user != null) {
+			const user = (packet as any).user;
+			const info = waitingMessages.get(user);
+			if(info != null && info[0] == packet.command) {
+				info[1](packet as any);
+				return;
 			}
-		})();
-		if (payload == null)
-			return;
-		if (payload.command == NODE_COMMAND_PING) {
-			writePayload({
+		}
+		if(packet.command == NODE_COMMAND_PING) {
+			writePacket({
 				command: NODE_COMMAND_PONG,
-				user: payload.user
+				user: packet.user
 			});
 			return;
 		}
-		if (payload.command == NODE_COMMAND_MODULE_SYNC) {
-			if (nodeModuleNegotiator == null) {
-				writePayload({
+		if(packet.command == NODE_COMMAND_MODULE_SYNC) {
+			if(nodeModuleNegotiator == null) {
+				writePacket({
 					command: NODE_COMMAND_MODULE_SYNC_ACK,
-					user: payload.user,
+					user: packet.user,
 					status: CODE_ERROR,
 					message: "Server is not ready yet",
 					modules: []
@@ -359,19 +359,19 @@ function newNodeContext(nodeId: number) {
 			}
 			nodeModuleNegotiator.forNode(nodeId).then( // no await
 				m => {
-					writePayload({
+					writePacket({
 						command: NODE_COMMAND_MODULE_SYNC_ACK,
-						user: payload.user,
+						user: packet.user,
 						status: CODE_OK,
 						message: "",
 						modules: m
 					});
-					doSyncNodeModules(m, payload.modules);
+					doSyncNodeModules(m, packet.modules);
 				},
 				e => {
-					writePayload({
+					writePacket({
 						command: NODE_COMMAND_MODULE_SYNC_ACK,
-						user: payload.user,
+						user: packet.user,
 						status: CODE_ERROR,
 						message: e.stack,
 						modules: []
@@ -380,170 +380,199 @@ function newNodeContext(nodeId: number) {
 			);
 			return;
 		}
-		if (payload.command == NODE_COMMAND_MODULE_OPTION_GET) {
-			if (nodeModuleNegotiator == null) {
-				writePayload({
+		if(packet.command == NODE_COMMAND_MODULE_OPTION_GET) {
+			if(nodeModuleNegotiator == null) {
+				writePacket({
 					command: NODE_COMMAND_MODULE_OPTION_GET_ACK,
-					user: payload.user,
+					user: packet.user,
 					status: CODE_ERROR,
 					message: "Server is not ready yet",
 					values: []
 				});
 				return;
 			}
-			nodeModuleNegotiator.getOptions(nodeId, payload.name, payload.ids).then( // no await
+			nodeModuleNegotiator.getOptions(nodeId, packet.name, packet.ids).then( // no await
 				m => {
-					writePayload({
+					writePacket({
 						command: NODE_COMMAND_MODULE_OPTION_GET_ACK,
-						user: payload.user,
+						user: packet.user,
 						status: CODE_OK,
 						message: "",
 						values: m
 					});
 				},
 				e => {
-					writePayload({
+					writePacket({
 						command: NODE_COMMAND_MODULE_OPTION_GET_ACK,
-						user: payload.user,
+						user: packet.user,
 						status: CODE_ERROR,
 						message: e.stack,
 						values: []
 					});
 				}
-			)
+			);
 			return;
 		}
-		if (payload.command == NODE_COMMAND_MODULE_OPTION_SET) {
-			if (nodeModuleNegotiator == null) {
-				writePayload({
+		if(packet.command == NODE_COMMAND_MODULE_OPTION_SET) {
+			if(nodeModuleNegotiator == null) {
+				writePacket({
 					command: NODE_COMMAND_MODULE_OPTION_SET_ACK,
-					user: payload.user,
+					user: packet.user,
 					status: CODE_ERROR,
 					message: "Server is not ready yet"
 				});
 				return;
 			}
-			nodeModuleNegotiator.setOptions(nodeId, payload.name, payload.ids, payload.values).then( // no await
+			nodeModuleNegotiator.setOptions(nodeId, packet.name, packet.ids, packet.values).then( // no await
 				() => {
-					writePayload({
+					writePacket({
 						command: NODE_COMMAND_MODULE_OPTION_SET_ACK,
-						user: payload.user,
+						user: packet.user,
 						status: CODE_OK,
 						message: ""
 					});
 				},
 				e => {
-					writePayload({
+					writePacket({
 						command: NODE_COMMAND_MODULE_OPTION_SET_ACK,
-						user: payload.user,
+						user: packet.user,
 						status: CODE_ERROR,
 						message: e.stack
 					});
 				}
-			)
+			);
 			return;
 		}
-		if (payload.command == NODE_COMMAND_MODULE_OPTION_DELETE) {
-			if (nodeModuleNegotiator == null) {
-				writePayload({
+		if(packet.command == NODE_COMMAND_MODULE_OPTION_DELETE) {
+			if(nodeModuleNegotiator == null) {
+				writePacket({
 					command: NODE_COMMAND_MODULE_OPTION_DELETE_ACK,
-					user: payload.user,
+					user: packet.user,
 					status: CODE_ERROR,
 					message: "Server is not ready yet"
 				});
 				return;
 			}
-			nodeModuleNegotiator.deleteOptions(nodeId, payload.name, payload.ids).then( // no await
+			nodeModuleNegotiator.deleteOptions(nodeId, packet.name, packet.ids).then( // no await
 				() => {
-					writePayload({
+					writePacket({
 						command: NODE_COMMAND_MODULE_OPTION_DELETE_ACK,
-						user: payload.user,
+						user: packet.user,
 						status: CODE_OK,
 						message: ""
 					});
 				},
 				e => {
-					writePayload({
+					writePacket({
 						command: NODE_COMMAND_MODULE_OPTION_DELETE_ACK,
-						user: payload.user,
+						user: packet.user,
 						status: CODE_ERROR,
 						message: e.stack
 					});
 				}
-			)
+			);
 			return;
 		}
-		if (payload.command == NODE_COMMAND_MODULE_OPTION_LIST) {
-			if (nodeModuleNegotiator == null) {
-				writePayload({
+		if(packet.command == NODE_COMMAND_MODULE_OPTION_LIST) {
+			if(nodeModuleNegotiator == null) {
+				writePacket({
 					command: NODE_COMMAND_MODULE_OPTION_LIST_ACK,
-					user: payload.user,
+					user: packet.user,
 					status: CODE_ERROR,
 					message: "Server is not ready yet",
 					ids: []
 				});
 				return;
 			}
-			nodeModuleNegotiator.listOptions(nodeId, payload.name).then( // no await
+			nodeModuleNegotiator.listOptions(nodeId, packet.name).then( // no await
 				k => {
-					writePayload({
+					writePacket({
 						command: NODE_COMMAND_MODULE_OPTION_LIST_ACK,
-						user: payload.user,
+						user: packet.user,
 						status: CODE_OK,
 						message: "",
 						ids: k
 					});
 				},
 				e => {
-					writePayload({
+					writePacket({
 						command: NODE_COMMAND_MODULE_OPTION_LIST_ACK,
-						user: payload.user,
+						user: packet.user,
 						status: CODE_ERROR,
 						message: e.stack,
 						ids: []
 					});
 				}
-			)
+			);
 			return;
 		}
-		const serverModuleId = packetModules.get(payload.command);
-		if (serverModuleId != null) {
+		const serverModuleId = packetModules.get(packet.command);
+		if(serverModuleId != null) {
 			const serverModule = serverModules.get(serverModuleId);
-			serverModule.onReceive(payload);
+			serverModule.onReceive(nodeId, packet);
 			return;
 		}
 	};
-	context.onNodeReceive = onNodeReceive;
+	(async () => {
+		while(true) {
+			const packet = await readPacket();
+			if((packet as any) == ERR_OFFLINE) break;
+			onNodePacketReceive(packet);
+		}
+	})();
 	return context;
 }
 broker.brokerEmitter.on("nodejoin", Comlink.transfer((nodeId, brokerId) => {
 	let nodeContext = nodeContexts.get(nodeId);
-	if (nodeContext == null) {
+	if(nodeContext == null) {
 		nodeContext = newNodeContext(nodeId);
 		nodeContexts.set(nodeId, nodeContext);
 	}
-	if (!nodeContext.brokers.has(brokerId))
+	if(!nodeContext.brokers.has(brokerId))
 		nodeContext.brokers.add(brokerId);
-	if (nodeContext.brokers.size == 1)
+	if(nodeContext.brokers.size == 1)
 		nodeEmitter.emit("join", nodeId);
 }));
 broker.brokerEmitter.on("nodeleave", Comlink.transfer((nodeId, brokerId) => {
 	const nodeContext = nodeContexts.get(nodeId);
-	if (nodeContext == null) return;
-	if (nodeContext.brokers.has(brokerId))
+	if(nodeContext == null) return;
+	if(nodeContext.brokers.has(brokerId))
 		nodeContext.brokers.delete(brokerId);
-	if (nodeContext.brokers.size == 0) {
+	if(nodeContext.brokers.size == 0) {
 		nodeContexts.delete(nodeId);
 		nodeEmitter.emit("leave", nodeId);
+		nodeContext.readBuffer.push(ERR_OFFLINE as any);
+		if(nodeContext.readLock != null) {
+			nodeContext.readLock();
+			nodeContext.readLock = null;
+		}
 	}
 }));
 broker.brokerEmitter.on("nodereceive", Comlink.transfer((nodeId, packet) => {
 	const nodeContext = nodeContexts.get(nodeId);
-	if (nodeContext == null) {
+	if(nodeContext == null) {
 		debug(`Received packet for ${nodeId}, but the node is not joined`);
 		return;
 	}
-	nodeContext.onNodeReceive(packet);
+	if(packet.command != BROKER_COMMAND_NODE_RELAY) return;
+	const nodePacket = (() => {
+		try {
+			return decodeNodePacket(packet.message);
+		} catch(e) {
+			if(e == ERR_PACKET_UNKNOWN_COMMAND) {
+				debug(`Received unknown command from node ${nodeId}`);
+				return null;
+			}
+			throw e;
+		}
+	})();
+	if(nodePacket == null)
+		return;
+	nodeContext.readBuffer.push(nodePacket);
+	if(nodeContext.readLock != null) {
+		nodeContext.readLock();
+		nodeContext.readLock = null;
+	}
 }));
 export const nodeEmitter = new EventEmitter() as TypedEmitter<{
 	join: (nodeId: number) => void;
@@ -561,42 +590,42 @@ let nodeModuleNegotiator: {
 export async function setNodeModuleNegotiator(negotiator: typeof nodeModuleNegotiator) {
 	nodeModuleNegotiator = negotiator;
 	const promises = [];
-	for (const nodeContext of nodeContexts.values())
+	for(const nodeContext of nodeContexts.values())
 		promises.push(nodeContext.syncNodeModules());
 	await Promise.all(promises);
 }
-const __doNodeOrOffline = <A extends Array<any>, R extends Promise<any>>(cb: (nodeContext: NodeContext, ...args: A) => R) => {
+const __doNode = <A extends Array<any>, R>(cb: (nodeContext: NodeContext, ...args: A) => Promise<R> | R) => {
 	return async (nodeId: number, ...args: A) => {
 		const nodeContext = nodeContexts.get(nodeId);
-		if (nodeContext == null) return false; // node offline
-		await cb(nodeContext, ...args);
-		return true;
-	}
+		if(nodeContext == null) throw ERR_OFFLINE;
+		return await cb(nodeContext, ...args);
+	};
 };
-export const syncNodeModules = __doNodeOrOffline(c => c.syncNodeModules());
-export const syncNodeModuleOptions = __doNodeOrOffline((c, name: string) => c.syncNodeModuleOptions(name));
-export const getNodeModuleOptions = __doNodeOrOffline((c, name: string, ids: string[]) => c.getNodeModuleOptions(name, ids));
-export const setNodeModuleOptions = __doNodeOrOffline((c, name: string, ids: string[], values: any[]) => c.setNodeModuleOptions(name, ids, values));
-export const deleteNodeModuleOptions = __doNodeOrOffline((c, name: string, ids: string[]) => c.deleteNodeModuleOptions(name, ids));
-export const listNodeModuleOptions = __doNodeOrOffline((c, name: string) => c.listNodeModuleOptions(name));
+export const writePacket = __doNode((c, packet: NodePacketStructs) => c.writePacket(packet));
+export const syncNodeModules = __doNode(c => c.syncNodeModules());
+export const syncNodeModuleOptions = __doNode((c, name: string) => c.syncNodeModuleOptions(name));
+export const getNodeModuleOptions = __doNode((c, name: string, ids: string[]) => c.getNodeModuleOptions(name, ids));
+export const setNodeModuleOptions = __doNode((c, name: string, ids: string[], values: any[]) => c.setNodeModuleOptions(name, ids, values));
+export const deleteNodeModuleOptions = __doNode((c, name: string, ids: string[]) => c.deleteNodeModuleOptions(name, ids));
+export const listNodeModuleOptions = __doNode((c, name: string) => c.listNodeModuleOptions(name));
 
 interface ServerModule {
 	name: string;
 	version: string;
 	packetDefinitions: NodeServerPacketDefintion[];
-	onReceive: (packet: any) => void;
-};
+	onReceive: (nodeId: number, packet: any) => void;
+}
 const serverModules = new Map<string, ServerModule>();
 const packetModules = new Map<number, string>();
 export async function installServerNodeModule(moduleInfo: ModuleInfo, packetDefinitions: NodeServerPacketDefintion[], onReceive: (packet: any) => void) {
-	if (serverModules.get(moduleInfo.name)?.version == moduleInfo.version)
+	if(serverModules.get(moduleInfo.name)?.version == moduleInfo.version)
 		return;
-	for (const packetDefinition of packetDefinitions) {
-		if (NodePackets[packetDefinition.command] == null) continue;
-		if (packetModules.get(packetDefinition.command) == moduleInfo.name) continue;
+	for(const packetDefinition of packetDefinitions) {
+		if(NodePackets[packetDefinition.command] == null) continue;
+		if(packetModules.get(packetDefinition.command) == moduleInfo.name) continue;
 		throw new Error(`Error while installing server node module: Conflict packet id ${packetDefinition.name} with ${NodePacketNames[packetDefinition.command]}`);
 	}
-	if (serverModules.has(moduleInfo.name))
+	if(serverModules.has(moduleInfo.name))
 		await uninstallServerNodeModule(moduleInfo.name);
 	const serverModule: ServerModule = {
 		name: moduleInfo.name,
@@ -605,7 +634,7 @@ export async function installServerNodeModule(moduleInfo: ModuleInfo, packetDefi
 		onReceive: onReceive
 	};
 	serverModules.set(moduleInfo.name, serverModule);
-	for (const packetDefinition of packetDefinitions) {
+	for(const packetDefinition of packetDefinitions) {
 		NodePackets[packetDefinition.command] = newStructType(packetDefinition.properties);
 		NodePacketNames[packetDefinition.command] = `(${moduleInfo.name}) ${packetDefinition.name}`;
 		packetModules.set(packetDefinition.command, moduleInfo.name);
@@ -613,9 +642,9 @@ export async function installServerNodeModule(moduleInfo: ModuleInfo, packetDefi
 }
 export async function uninstallServerNodeModule(name: string) {
 	const serverModule = serverModules.get(name);
-	if (serverModule == null) return;
+	if(serverModule == null) return;
 	const packetDefinitions = serverModule.packetDefinitions;
-	for (const packetDefinition of packetDefinitions) {
+	for(const packetDefinition of packetDefinitions) {
 		delete NodePackets[packetDefinition.command];
 		delete NodePacketNames[packetDefinition.command];
 		packetModules.delete(packetDefinition.command);

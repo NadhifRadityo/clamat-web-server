@@ -15,7 +15,7 @@ import { CLamatBrokerModifiers, CLamatModuleModifiers } from "@/prisma/types";
 const debug = debug0("clamat:general");
 
 const minerTsdb = path.join(tempDir, "miner-tsdb/");
-if (!fs0.existsSync(minerTsdb))
+if(!fs0.existsSync(minerTsdb))
 	fs0.mkdirSync(minerTsdb, { recursive: true });
 
 const brokerAddress = await broker.getBrokerServerAddress();
@@ -31,15 +31,15 @@ interface NodeMinerState {
 const nodeMinerStates = new Map<number, NodeMinerState>();
 setInterval(() => {
 	const now = Date.now();
-	for (const [id, nodeMinerState] of nodeMinerStates.entries()) {
-		if (now - nodeMinerState.__lastUsed < 60 * 1000) continue;
+	for(const [id, nodeMinerState] of nodeMinerStates.entries()) {
+		if(now - nodeMinerState.__lastUsed < 60 * 1000) continue;
 		debug(`Deleting node miner state ${id}`);
 		deleteNodeMinerState(id);
 	}
 }, 30 * 1000);
 function deleteNodeMinerState(id: number) {
 	const nodeMinerState = nodeMinerStates.get(id);
-	if (nodeMinerState == null) return;
+	if(nodeMinerState == null) return;
 	nodeMinerStates.delete(id);
 	nodeMinerState.database.destructor();
 }
@@ -58,7 +58,7 @@ async function findMinerWithNodeId(nodeId: string) {
 }
 async function getNodeMinerState(id: number) {
 	let nodeMinerState = nodeMinerStates.get(id);
-	if (nodeMinerState == null) {
+	if(nodeMinerState == null) {
 		const nodeId = u16touuidv4(id);
 		const minerId = await findMinerWithNodeId(nodeId);
 		const database = await new tsdb.StorageItem(minerTsdb, minerId, {
@@ -105,7 +105,7 @@ async function getBrokerModules(brokerId: number) {
 	const moduleIds = clamatBrokerModifierEditor.filter(["Module"], modifiers).map(m => m.value);
 	const moduleOptionValues = clamatBrokerModifierEditor.filter(["ModuleOption"], modifiers).map(m => m.value);
 	const missingModules = moduleIds.filter(m => !mirrorModules.has(m));
-	if (missingModules.length > 0) debug(`Missing modules ${JSON.stringify(missingModules)} for broker ${brokerId}`);
+	if(missingModules.length > 0) debug(`Missing modules ${JSON.stringify(missingModules)} for broker ${brokerId}`);
 	const modules = moduleIds.map(m => mirrorModules.get(m)).filter(m => m != null);
 	const moduleOptions = modules.map(m => Object.fromEntries(moduleOptionValues.filter(o => o.module == m.name).sort((o1, o2) => o1.id.localeCompare(o2.id)).map(o => [o.id, o.value])));
 	const modulesWithOptions = modules.map((m, i) => ({ ...m, options: moduleOptions[i] }));
@@ -118,7 +118,7 @@ async function modifyBrokerModules(brokerId: number, callback: (modifiers: CLama
 	})).modifiers as any as CLamatBrokerModifiers[];
 	const copyModifiers = structuredClone(modifiers);
 	await callback(copyModifiers);
-	if (JSON.stringify(copyModifiers) == JSON.stringify(modifiers))
+	if(JSON.stringify(copyModifiers) == JSON.stringify(modifiers))
 		return;
 	await prisma.cLamatBroker.update({
 		where: { id: u16touuidv4(brokerId) },
@@ -127,7 +127,7 @@ async function modifyBrokerModules(brokerId: number, callback: (modifiers: CLama
 }
 async function syncBrokerModules(brokerId: number) {
 	const result = await broker.syncBrokerModules(brokerId);
-	if (result) debug(`Successfully syncing broker ${brokerId}`);
+	if(result) debug(`Successfully syncing broker ${brokerId}`);
 	else debug(`Trying to sync broker ${brokerId} but it is offline`);
 }
 broker.setBrokerModuleNegotiator({
@@ -154,7 +154,7 @@ broker.setBrokerModuleNegotiator({
 			sourceCode: sourceCode,
 			nodeBrokerPacketDefinitions: nodeBrokerPacketDefinitions,
 			brokerServerPacketDefinitions: brokerServerPacketDefinitions
-		}
+		};
 	}),
 	getOptions: Comlink.transfer(async (brokerId: number, name: string, ids: string[]) => {
 		const brokerModules = await getBrokerModules(brokerId);
@@ -162,25 +162,25 @@ broker.setBrokerModuleNegotiator({
 		return ids.map(i => moduleOptions[i]);
 	}),
 	setOptions: Comlink.transfer(async (brokerId: number, name: string, ids: string[], values: any[]) => {
-		await modifyBrokerModules(brokerId, async (modifiers) => {
-			for (let i = 0; i < ids.length; i++) {
+		await modifyBrokerModules(brokerId, async modifiers => {
+			for(let i = 0; i < ids.length; i++) {
 				const id = ids[i];
 				const value = values[i];
 				let modifier = clamatBrokerModifierEditor.findLast(["ModuleOption"], modifiers, m => m.value.module == name && m.value.id == id);
-				if (modifier != null) { modifier.value = value; continue; }
+				if(modifier != null) { modifier.value = value; continue; }
 				modifier = { name: "ModuleOption", value: { module: name, id: id, value: value } };
 				clamatBrokerModifierEditor.add(modifiers, modifier);
 			}
 		});
 	}),
 	deleteOptions: Comlink.transfer(async (brokerId: number, name: string, ids: string[]) => {
-		await modifyBrokerModules(brokerId, async (modifiers) => {
-			for (const id of ids) {
+		await modifyBrokerModules(brokerId, async modifiers => {
+			for(const id of ids) {
 				const index = clamatBrokerModifierEditor.findLastIndex(["ModuleOption"], modifiers, m => m.value.module == name && m.value.id == id);
-				if (index == -1) continue;
+				if(index == -1) continue;
 				clamatBrokerModifierEditor.remove(modifiers, index);
 			}
-		})
+		});
 	}),
 	listOptions: Comlink.transfer(async (brokerId: number, name: string) => {
 		const brokerModules = await getBrokerModules(brokerId);
@@ -214,7 +214,7 @@ const CLamatBrokerCollection = db.collection("CLamatBroker");
 		fullDocument: "whenAvailable"
 	});
 	for await (const change of moduleUpdateWatchStream) {
-		if (change.operationType == "insert" || change.operationType == "update" || change.operationType == "replace") {
+		if(change.operationType == "insert" || change.operationType == "update" || change.operationType == "replace") {
 			const id = change.documentKey._id.toHexString();
 			const fullDocument = change.fullDocument;
 			mirrorModules.set(id, {
@@ -224,7 +224,7 @@ const CLamatBrokerCollection = db.collection("CLamatBroker");
 				modifiers: fullDocument.modifiers
 			});
 		}
-		if (change.operationType == "delete") {
+		if(change.operationType == "delete") {
 			const id = change.documentKey._id.toHexString();
 			mirrorModules.delete(id);
 		}
@@ -239,13 +239,13 @@ const CLamatBrokerCollection = db.collection("CLamatBroker");
 		fullDocumentBeforeChange: "required"
 	});
 	for await (const change of brokerUpdateWatchStream) {
-		if (change.operationType == "update") {
+		if(change.operationType == "update") {
 			const id = change.documentKey._id.toHexString();
 			const fullDocument = change.fullDocument;
 			const fullDocumentBeforeChange = change.fullDocumentBeforeChange;
 			const newModifiers = clamatBrokerModifierEditor.filter(["Module", "ModuleOption"], fullDocument.modifiers).map(m => JSON.stringify(m)).sort().join("\n");
 			const oldModifiers = clamatBrokerModifierEditor.filter(["Module", "ModuleOption"], fullDocumentBeforeChange.modifiers).map(m => JSON.stringify(m)).sort().join("\n");
-			if (newModifiers == oldModifiers) continue;
+			if(newModifiers == oldModifiers) continue;
 			syncBrokerModules(uuidv4tou16(id));
 		}
 	}
@@ -265,7 +265,7 @@ const NodePongPacket = newStructType({ // Node -> Server, Server -> Node
 // decode node packet
 // handle qos messages
 // how to do modular? for message enc/dec and processing is fine, but frontend?
-// 
+//
 const getBrokerTempBuffer = newTempBuffer();
 function decodeBrokerPacket(buffer: Buffer) {
 	const reader = newBufferReader(buffer);

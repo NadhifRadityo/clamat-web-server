@@ -35,7 +35,8 @@ module.exports = {
 		"react/jsx-indent-props": ["warn", "tab"],
 		"react/self-closing-comp": "off",
 		"react/jsx-closing-bracket-location": ["warn", "line-aligned"],
-		"@next/next/no-html-link-for-pages": ["error", "app/"]
+		"@next/next/no-html-link-for-pages": ["error", "app/"],
+		"no-useless-return": "off"
 	},
 	$schema: "https://json.schemastore.org/eslintrc.json"
 };
